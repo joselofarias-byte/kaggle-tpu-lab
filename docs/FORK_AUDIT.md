@@ -2,6 +2,8 @@
 
 Audit date: 2026-09-24. Base of this fork: `joselofarias-byte/kaggle-tpu-lab` `main` at `bc76571` ("Android ES: APK paralelo, estados claros y Keystore durable").
 
+**This branch is the experimental runtime.** It changes the Qwen pin from vllm-tpu 0.28.0 to 0.29.0 and embeds `mtp-rollback-v0290.diff`. Do not merge it to `main`. Validation steps are in `docs/EXPERIMENTAL_VLLM_029.md`. The recommendations below still describe what belongs on production `main`.
+
 This document compares that tree with the upstreams listed in the integration brief. It records what we already have, what is safe to adapt, what stays experimental, and what to skip. No Kaggle session API was called. No fork was merged wholesale.
 
 ## Our baseline
