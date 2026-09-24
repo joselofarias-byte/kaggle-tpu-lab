@@ -2,7 +2,7 @@ import { KaggleAccount, LaunchConfig, RaceSession, LiveEndpoint, NtfyEvent, getS
 import { KaggleApi } from './kaggle';
 import { prepareKernel } from './templates';
 import { NtfyListener } from './ntfy';
-import { probeEndpoint } from './endpointProbe';
+import { nextProbeDecision, probeEndpoint } from './endpointProbe';
 import { randomApiKey, randomTopicId } from './random';
 import { startQueueMonitoring, stopQueueMonitoring } from './queueMonitor';
 
@@ -253,6 +253,7 @@ export class InstanceManager {
       };
       if (ev.api_key) session.apiKey = ev.api_key;
       session.endpoint = ep;
+      this.probeMisses.delete(session.account);
       this.endpoints.set(session.account, ep);
       if (session.status !== 'RUNNING' && session.status !== 'WINNER') {
         session.status = 'RUNNING';
@@ -392,19 +393,14 @@ export class InstanceManager {
       if (ep.status !== 'READY' && ep.status !== 'OFFLINE') continue;
       if (ep.status === 'READY' && ep.readySince && Date.now() - ep.readySince < 45000) continue;
       const ok = await probeEndpoint(ep.baseUrl, ep.apiKey);
-      if (ok) {
-        this.probeMisses.set(session.account, 0);
-        if (ep.status !== 'READY') {
-          ep.status = 'READY';
-          ep.readySince = Date.now();
-          this.endpoints.set(session.account, ep);
-        }
-        continue;
-      }
-      const misses = (this.probeMisses.get(session.account) || 0) + 1;
-      this.probeMisses.set(session.account, misses);
-      if (misses >= 3 && ep.status === 'READY') {
-        ep.status = 'OFFLINE';
+      const wasReady = ep.status === 'READY';
+      const decision = nextProbeDecision(ep.status, this.probeMisses.get(session.account) || 0, ok);
+      this.probeMisses.set(session.account, decision.misses);
+      ep.status = decision.status;
+      if (decision.listed) {
+        if (ok && !wasReady) ep.readySince = Date.now();
+        this.endpoints.set(session.account, ep);
+      } else {
         this.endpoints.delete(session.account);
       }
     }
@@ -420,6 +416,7 @@ export class InstanceManager {
       baseUrl: customUrl.trim(),
       apiKey: session.apiKey || 'sk-custom',
       status: 'READY',
+      readySince: Date.now(),
     };
     session.endpoint = ep;
     session.status = 'RUNNING';

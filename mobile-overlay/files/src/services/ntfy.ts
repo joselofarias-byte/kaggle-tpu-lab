@@ -177,7 +177,9 @@ export class NtfyListener {
     if (p === 'benchmark') return `Rendimiento: ${ev.decode_tok_s} tok/s`;
     if (p === 'heartbeat') return `Servicio activo (${ev.up_min || '?'} min)${ev.endpoint ? ` — ${ev.endpoint}` : ''}`;
 
-    return `[${p}] ${JSON.stringify(ev)}`;
+    const shown: NtfyEvent = { ...ev };
+    delete shown.api_key;
+    return `[${p}] ${JSON.stringify(shown)}`;
   }
 
   private async notifyApp(title: string, body: string) {

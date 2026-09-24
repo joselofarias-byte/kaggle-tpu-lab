@@ -12,6 +12,21 @@ export function modelsUrl(endpoint: string): string {
   return `${base}/models`;
 }
 
+/**
+ * Three missed probes take a READY endpoint off the "TPU lista" list.
+ * A later success puts it back without relaunching the kernel.
+ */
+export function nextProbeDecision(
+  status: string,
+  misses: number,
+  ok: boolean,
+): { status: 'READY' | 'OFFLINE'; misses: number; listed: boolean } {
+  if (ok) return { status: 'READY', misses: 0, listed: true };
+  const next = misses + 1;
+  if (next >= 3 && status === 'READY') return { status: 'OFFLINE', misses: next, listed: false };
+  return { status: status === 'OFFLINE' ? 'OFFLINE' : 'READY', misses: next, listed: status === 'READY' };
+}
+
 export async function probeEndpoint(endpoint: string, apiKey: string, timeoutMs = 8000): Promise<boolean> {
   if (!endpoint || !apiKey) return false;
   const ctrl = new AbortController();

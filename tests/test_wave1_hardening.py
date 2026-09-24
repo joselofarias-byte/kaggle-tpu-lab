@@ -35,8 +35,8 @@ def load_funcs(path, *names, **extra):
     mod = ast.Module(body=list(wanted.values()), type_ignores=[])
     ns = {
         "os": os, "re": re, "sys": sys, "json": json, "hashlib": hashlib, "hmac": hmac,
-        "Path": Path, "collections": collections, "CFG": {}, "log": lambda *a: None,
-        "publish": lambda *a, **k: None,
+        "io": io, "tarfile": tarfile, "Path": Path, "collections": collections, "CFG": {},
+        "log": lambda *a: None, "publish": lambda *a, **k: None,
     }
     ns.update(extra)
     exec(compile(mod, str(path), "exec"), ns)  # noqa: S102 — test sandbox
@@ -80,8 +80,12 @@ class DigestAndRedactTest(unittest.TestCase):
         self.assertNotIn("api_key", ns["public_event_fields"]("heartbeat", {"api_key": "sk-x", "up_min": 3}))
 
     def test_glm_has_the_same_key_rule(self):
-        ns = load_funcs(GLM, "public_event_fields")
+        ns = load_funcs(GLM, "public_event_fields", "redact")
         self.assertNotIn("api_key", ns["public_event_fields"]("heartbeat", {"api_key": "glm-abc"}))
+        ns["CFG"] = {"api_key": "glm-" + "b" * 16}
+        red = ns["redact"]("token=hf_secrettoken bearer secret")
+        self.assertNotIn("hf_secrettoken", red)
+        self.assertNotIn("glm-" + "b" * 16, red)
 
 
 class StateAndPinsTest(unittest.TestCase):
@@ -103,10 +107,17 @@ class StateAndPinsTest(unittest.TestCase):
             src = path.read_text()
             self.assertNotIn("releases/latest", src, path.name)
             self.assertIn("03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc", src)
-        self.assertIn('"vllm_tpu_version": "0.28.0"', QWEN.read_text())
-        self.assertIn('"--host", "127.0.0.1"', QWEN.read_text())
+        qwen = QWEN.read_text()
+        self.assertIn('"vllm_tpu_version": "0.28.0"', qwen)
+        self.assertNotIn('"vllm_tpu_version": "0.29.0"', qwen)
+        self.assertNotIn("mtp-rollback-v0290", qwen)
+        self.assertNotIn("--enable-prefix-caching", qwen)
+        self.assertIn('"--host", "127.0.0.1"', qwen)
         self.assertIn('"--host", "127.0.0.1"', GPU.read_text())
         self.assertNotIn('"--host", "0.0.0.0"', GPU.read_text())
+        glm = GLM.read_text()
+        self.assertIn('ThreadingHTTPServer(("127.0.0.1", PORT), H)', glm)
+        self.assertNotIn("0.0.0.0", glm)
 
     def test_models_url_shapes(self):
         self.assertEqual(launch.models_url("https://q.example/v1"), "https://q.example/v1/models")
@@ -158,19 +169,111 @@ class FailFastTest(unittest.TestCase):
         self.assertEqual(events[0][0], "stopped")
         self.assertNotIn("api_key", events[0][1])
 
+    def _tar(self, members, mode="w"):
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode=mode) as tf:
+            for info, payload in members:
+                tf.addfile(info, io.BytesIO(payload) if payload is not None else None)
+        return buf.getvalue()
+
+    def _member(self, name, kind="file", payload=b"ok", linkname=""):
+        info = tarfile.TarInfo(name=name)
+        if kind == "file":
+            info.type = tarfile.REGTYPE
+            info.size = len(payload)
+            return info, payload
+        if kind == "symlink":
+            info.type = tarfile.SYMTYPE
+            info.linkname = linkname
+            return info, None
+        if kind == "hardlink":
+            info.type = tarfile.LNKTYPE
+            info.linkname = linkname
+            return info, None
+        raise AssertionError(kind)
+
     def test_tar_slip_rejected(self):
         ns = load_funcs(QWEN, "safe_tar_members")
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w") as tf:
-            info = tarfile.TarInfo(name="../escape.txt")
-            payload = b"nope"
-            info.size = len(payload)
-            tf.addfile(info, io.BytesIO(payload))
-        raw = buf.getvalue()
         path = Path(tempfile.mkdtemp()) / "cache.tar"
-        path.write_bytes(raw)
+        path.write_bytes(self._tar([self._member("../escape.txt")]))
         with self.assertRaises(ValueError):
             ns["safe_tar_members"](str(path))
+
+    def test_tar_symlink_and_hardlink_rejected(self):
+        ns = load_funcs(QWEN, "safe_tar_members")
+        root = Path(tempfile.mkdtemp())
+        symlink = root / "symlink.tar"
+        hardlink = root / "hardlink.tar"
+        symlink.write_bytes(self._tar([
+            self._member("xla_cache/link", "symlink", linkname="ok.bin"),
+        ]))
+        hardlink.write_bytes(self._tar([
+            self._member("xla_cache/alias", "hardlink", linkname="xla_cache/ok.bin"),
+        ]))
+        with self.assertRaises(ValueError) as sym:
+            ns["safe_tar_members"](str(symlink))
+        self.assertIn("symlink", str(sym.exception))
+        with self.assertRaises(ValueError) as hard:
+            ns["safe_tar_members"](str(hardlink))
+        self.assertIn("hardlink", str(hard.exception))
+        safe = root / "safe.tar"
+        safe.write_bytes(self._tar([self._member("xla_cache/ok.bin")]))
+        self.assertEqual(ns["safe_tar_members"](str(safe)), 1)
+        clobber = root / "clobber.tar"
+        clobber.write_bytes(self._tar([self._member("cloudflared")]))
+        with self.assertRaises(ValueError) as outside:
+            ns["safe_tar_members"](str(clobber))
+        self.assertIn("outside xla_cache", str(outside.exception))
+
+    def test_glm_extract_rejects_symlink_and_hardlink(self):
+        ns = load_funcs(GLM, "safe_extract_tar_bytes")
+        dest = Path(tempfile.mkdtemp())
+        for kind, linkname in (("symlink", "note.txt"), ("hardlink", "note.txt")):
+            data = self._tar([
+                self._member("note.txt"),
+                self._member("alias", kind, linkname=linkname),
+            ], mode="w:gz")
+            with self.assertRaises(ValueError) as caught:
+                ns["safe_extract_tar_bytes"](data, dest / kind)
+            self.assertIn(kind, str(caught.exception))
+            self.assertFalse((dest / kind).exists() and any((dest / kind).iterdir()))
+        good = dest / "good"
+        ns["safe_extract_tar_bytes"](self._tar([self._member("note.txt")], mode="w:gz"), good)
+        self.assertEqual((good / "note.txt").read_bytes(), b"ok")
+
+    def test_gpu_rejects_escaping_links_and_keeps_soname_symlink(self):
+        ns = load_funcs(GPU, "safe_extract")
+        root = Path(tempfile.mkdtemp())
+        hard = root / "hard.tar.gz"
+        hard.write_bytes(self._tar([
+            self._member("cuda/lib.so", "hardlink", linkname="cuda/real.so"),
+        ], mode="w:gz"))
+        with self.assertRaises(RuntimeError) as hard_err:
+            ns["safe_extract"](hard, root / "hard-out")
+        self.assertIn("hardlink", str(hard_err.exception))
+        escape = root / "escape.tar.gz"
+        escape.write_bytes(self._tar([
+            self._member("cuda/lib.so", "symlink", linkname="../outside.so"),
+        ], mode="w:gz"))
+        with self.assertRaises(RuntimeError) as sym_err:
+            ns["safe_extract"](escape, root / "escape-out")
+        self.assertIn("symlink", str(sym_err.exception))
+        absolute = root / "abs.tar.gz"
+        absolute.write_bytes(self._tar([
+            self._member("cuda/lib.so", "symlink", linkname="/etc/passwd"),
+        ], mode="w:gz"))
+        with self.assertRaises(RuntimeError):
+            ns["safe_extract"](absolute, root / "abs-out")
+        soname = root / "soname.tar.gz"
+        soname.write_bytes(self._tar([
+            self._member("cuda/libllama.so.0.4.0", payload=b"elf"),
+            self._member("cuda/libllama.so.0", "symlink", linkname="libllama.so.0.4.0"),
+        ], mode="w:gz"))
+        out = root / "soname-out"
+        ns["safe_extract"](soname, out)
+        link = out / "cuda" / "libllama.so.0"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(os.readlink(link), "libllama.so.0.4.0")
 
     def test_mtp_head_false_without_index(self):
         ns = load_funcs(QWEN, "has_mtp_head")

@@ -19,6 +19,7 @@ cloudflared is the same 2026.9.1 pin as the TPU kernels.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -82,6 +83,17 @@ def log(*parts):
     print(time.strftime("[%H:%M:%S]"), *parts, flush=True)
 
 
+def redact(text):
+    """Scrub the endpoint key from kernel logs. The READY banner still prints it."""
+    text = str(text)
+    key = (CFG or {}).get("api_key") or ""
+    if key:
+        text = text.replace(key, "[REDACTED]")
+    text = re.sub(r"sk-[A-Za-z0-9]{16,}", "[REDACTED]", text)
+    text = re.sub(r"(?i)(bearer\s+)[^\s\"']+", r"\1[REDACTED]", text)
+    return text
+
+
 def publish(phase, **details):
     """Same event envelope as the TPU kernels. ``api_key`` only on ``ready``."""
     if phase != "ready":
@@ -108,7 +120,7 @@ def publish(phase, **details):
         "message_es": messages.get(phase, phase),
         **details,
     }
-    log("PHASE", phase, json.dumps(payload, ensure_ascii=False))
+    log("PHASE", phase, redact(json.dumps(payload, ensure_ascii=False)))
     topic = CFG.get("ntfy_topic") or ""
     if not topic:
         return
@@ -136,7 +148,7 @@ def download_checked(url: str, target: Path, expected_sha256: str):
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         log("Checking cached", target.name)
-        if file_sha256(target) == expected_sha256:
+        if hmac.compare_digest(file_sha256(target), expected_sha256.strip().lower()):
             log("✅ Reusing verified", target.name)
             return
         target.unlink()
@@ -150,7 +162,7 @@ def download_checked(url: str, target: Path, expected_sha256: str):
     ]
     subprocess.run(command, check=True)
     actual = file_sha256(partial)
-    if actual != expected_sha256:
+    if not hmac.compare_digest(actual, expected_sha256.strip().lower()):
         partial.unlink(missing_ok=True)
         raise RuntimeError(
             f"Checksum mismatch for {target.name}: expected {expected_sha256}, got {actual}"
@@ -195,14 +207,36 @@ def require_dual_t4():
 
 
 def safe_extract(archive: Path, destination: Path):
+    """Extract a digest-verified archive.
+
+    Hardlinks are always refused. Symlinks are refused when the target is
+    absolute, contains ``..``, or leaves *destination*. Relative in-tree
+    symlinks are kept: the pinned llama.cpp CUDA archive uses them as soname
+    links (``libllama.so.0`` -> ``libllama.so.0.4.0``). Callers must verify
+    the archive SHA-256 before calling this.
+    """
     destination.mkdir(parents=True, exist_ok=True)
     root = destination.resolve()
     with tarfile.open(archive, "r:gz") as bundle:
         for member in bundle.getmembers():
-            target = (destination / member.name).resolve()
+            name = member.name
+            if os.path.isabs(name) or ".." in Path(name).parts:
+                raise RuntimeError(f"Unsafe archive member: {name}")
+            target = (root / name).resolve()
             if target != root and root not in target.parents:
-                raise RuntimeError(f"Unsafe archive member: {member.name}")
-        bundle.extractall(destination)
+                raise RuntimeError(f"Unsafe archive member: {name}")
+            if member.islnk():
+                raise RuntimeError(f"refusing hardlink tar member: {name}")
+            if member.issym():
+                link = member.linkname or ""
+                if os.path.isabs(link) or ".." in Path(link).parts:
+                    raise RuntimeError(f"refusing symlink tar member: {name} -> {link}")
+                link_target = (target.parent / link).resolve()
+                if link_target != root and root not in link_target.parents:
+                    raise RuntimeError(f"refusing symlink tar member: {name} -> {link}")
+            elif not (member.isfile() or member.isdir()):
+                raise RuntimeError(f"refusing special tar member: {name}")
+        bundle.extractall(destination, filter="data")
 
 
 def prepare_llama_server():
@@ -399,7 +433,7 @@ def main():
         if public_url:
             publish("tunnel-url", endpoint=public_url + "/v1", note="wait for READY")
         else:
-            publish("tunnel-failed", log=tail(TUNNEL_LOG, 1000))
+            publish("tunnel-failed", log=redact(tail(TUNNEL_LOG, 1000)))
 
         startup_seconds = wait_for_server(server_process)
         self_test()
@@ -427,7 +461,7 @@ def main():
     except KeyboardInterrupt:
         publish("complete", reason="notebook interrupted")
     except Exception as error:
-        publish("failed", error=str(error)[-2000:])
+        publish("failed", error=redact(str(error)[-2000:]))
         raise
     finally:
         stop_process(tunnel_process, "Cloudflare tunnel")

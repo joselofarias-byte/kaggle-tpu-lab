@@ -299,17 +299,33 @@ def redact(text):
     return text
 
 
-def safe_tar_members(archive):
-    """Reject tar-slip members (absolute paths, ``..``) before extraction.
+def safe_tar_members(archive, prefix="xla_cache"):
+    """Reject tar-slip, symlinks, and hardlinks before extraction.
 
-    The XLA cache comes from a user-attached dataset. Raises ValueError on the
-    first unsafe member; returns the member count otherwise.
+    The XLA cache is a user-attached dataset extracted into ``/tmp``. Absolute
+    paths, ``..``, symlinks, hardlinks, and other non-regular members are
+    refused. *prefix* confines every member to that directory so a regular
+    file named ``cloudflared`` cannot replace the verified tunnel binary.
+    Pass ``prefix=None`` to skip that confinement. Raises ValueError; returns
+    the member count otherwise.
     """
     import tarfile
     with tarfile.open(archive) as tf:
         members = tf.getmembers()
-    bad = [m.name for m in members
-           if os.path.isabs(m.name) or ".." in Path(m.name).parts]
+    bad = []
+    for member in members:
+        name = member.name
+        rel = "/".join(part for part in Path(name).parts if part not in ("", "."))
+        if os.path.isabs(name) or ".." in Path(name).parts:
+            bad.append(f"{name} (path)")
+        elif member.issym():
+            bad.append(f"{name} (symlink)")
+        elif member.islnk():
+            bad.append(f"{name} (hardlink)")
+        elif not (member.isfile() or member.isdir()):
+            bad.append(f"{name} (special)")
+        elif prefix and rel != prefix and not rel.startswith(prefix + "/"):
+            bad.append(f"{name} (outside {prefix})")
     if bad:
         raise ValueError(f"unsafe tar members in {archive}: {bad[:3]}")
     return len(members)
@@ -369,6 +385,8 @@ def fetch_cloudflared():
             if verify_sha256(dataset_copy, CLOUDFLARED_SHA256):
                 log("   using dataset cloudflared copy (digest matches the pin)")
                 _install_verified_binary(dataset_copy, dest)
+                if not verify_sha256(dest, CLOUDFLARED_SHA256):
+                    raise RuntimeError("cloudflared changed during install; refusing to execute")
                 return
             log("   dataset cloudflared copy does not match the pin -> fresh download")
         except Exception as e:
@@ -703,15 +721,20 @@ cache_tar = (Path(bundle, "xla_cache.tar") if bundle and Path(bundle, "xla_cache
 cache_dir = find_input("*/*/xla_cache", "*/xla_cache", "xla_cache")
 if cache_tar:
     try:
-        safe_tar_members(str(cache_tar))
+        safe_tar_members(str(cache_tar), prefix="xla_cache")
     except ValueError as e:
         msg = str(e)
         publish("failed", step="cache-extract", error_code="cache-extract", cause=msg,
-                hint_es="El dataset de caché incluye rutas fuera de /tmp. No se extrajo.",
+                hint_es="El dataset de caché incluye rutas, enlaces o archivos fuera de xla_cache. No se extrajo.",
                 recoverable=False, tail=msg)
         sys.exit(1)
     flags = "-xf" if str(cache_tar).endswith(".tar") else "-xzf"
-    sh(["tar", flags, str(cache_tar), "-C", "/tmp"], "tar")
+    if sh(["tar", flags, str(cache_tar), "-C", "/tmp"], "tar") != 0:
+        msg = f"tar failed while extracting {cache_tar}"
+        publish("failed", step="cache-extract", error_code="cache-extract", cause=msg,
+                hint_es="No se pudo extraer la caché XLA. La sesión se detuvo.",
+                recoverable=False, tail=msg)
+        sys.exit(1)
 elif cache_dir:
     sh(["cp", "-r", cache_dir, "/tmp/"], "cp")
     sh(["chmod", "-R", "u+w", XLA_CACHE], "chmod")
@@ -1152,6 +1175,12 @@ server = launch_server(CFG)
 banner(5, "Public URL")
 url = None
 tunnel = None
+if CLOUDFLARED.exists() and not verify_sha256(CLOUDFLARED, CLOUDFLARED_SHA256):
+    msg = "cloudflared on disk does not match the pinned SHA-256; refusing to execute"
+    publish("failed", step="tunnel-binary", error_code="tunnel-binary", cause=msg,
+            hint_es="No se ejecutó un cloudflared sin verificar. Revisá Internet y volvé a lanzar.",
+            recoverable=True, tail=msg)
+    sys.exit(1)
 if CLOUDFLARED.exists():
     tunnel = subprocess.Popen([str(CLOUDFLARED), "tunnel", "--url", f"http://127.0.0.1:{PORT}",
                                "--no-autoupdate", "--protocol", "quic"],

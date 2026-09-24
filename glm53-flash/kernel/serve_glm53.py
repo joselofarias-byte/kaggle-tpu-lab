@@ -179,6 +179,7 @@ def redact(text):
     text = re.sub(r"sk-[A-Za-z0-9]{16,}", "[REDACTED]", text)
     text = re.sub(r"glm-[A-Za-z0-9]{16,}", "[REDACTED]", text)
     text = re.sub(r"(?i)(bearer\s+)[^\s\"']+", r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)(?<![A-Za-z_.-])(token\s*[:=]\s*)[^\s\"']+", r"\1[REDACTED]", text)
     return text
 
 
@@ -207,7 +208,8 @@ def publish(phase, **extra):
 def sh(cmd, tag):
     t = time.time()
     r = subprocess.run(cmd, capture_output=True, text=True)
-    log(f"   {tag}: rc {r.returncode} in {time.time() - t:.0f}s" + (f" | {(r.stderr or '')[-200:].strip()}" if r.returncode else ""))
+    err = redact((r.stderr or "")[-200:].strip()) if r.returncode else ""
+    log(f"   {tag}: rc {r.returncode} in {time.time() - t:.0f}s" + (f" | {err}" if err else ""))
     return r.returncode
 
 
@@ -265,6 +267,7 @@ def fetch_cloudflared():
     dest = Path(CLOUDFLARED)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_file() and verify_sha256(dest, CLOUDFLARED_SHA256):
+        os.chmod(dest, 0o755)
         log("   cloudflared already matches the pin", CLOUDFLARED_VERSION)
         return
     fd, tmp = tempfile.mkstemp(prefix=".cloudflared-", dir=str(dest.parent))
@@ -302,11 +305,16 @@ def safe_extract_tar_bytes(data, dest):
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
         for member in tf.getmembers():
             if member.issym() or member.islnk():
-                raise ValueError(f"refusing linked tar member {member.name}")
+                kind = "symlink" if member.issym() else "hardlink"
+                raise ValueError(f"refusing {kind} tar member {member.name}")
+            if not (member.isfile() or member.isdir()):
+                raise ValueError(f"refusing special tar member {member.name}")
+            if os.path.isabs(member.name) or ".." in Path(member.name).parts:
+                raise ValueError(f"unsafe tar member {member.name}")
             target = (root / member.name).resolve()
             if target != root and root not in target.parents:
                 raise ValueError(f"unsafe tar member {member.name}")
-        tf.extractall(root)
+        tf.extractall(root, filter="data")
 
 
 def preflight():
@@ -1310,7 +1318,7 @@ if CACHE_DIR.exists():
 publish("warmed", minutes=round((time.time() - t_warm) / 60, 1), hbm_gb=round(use, 2))
 
 SCHED.start()
-srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
+srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 log(f"   HTTP server on :{PORT}")
 
@@ -1322,6 +1330,9 @@ TUN = [None]
 def start_tunnel(attempts=3, wait_s=90):
     """A cloudflared quick tunnel -> its public URL, or None. Registration sometimes fails or hangs (seen in our runs):
     an attempt that prints no URL within `wait_s` is killed and retried."""
+    if not CLOUDFLARED.is_file() or not verify_sha256(CLOUDFLARED, CLOUDFLARED_SHA256):
+        log("   refusing to execute cloudflared: missing or digest mismatch")
+        return None
     pat = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
     for i in range(attempts):
         tun = subprocess.Popen([str(CLOUDFLARED), "tunnel", "--url", f"http://127.0.0.1:{PORT}", "--no-autoupdate"],

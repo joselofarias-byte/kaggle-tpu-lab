@@ -86,6 +86,20 @@ describe('NtfyListener.pollOnce', () => {
     expect(texts[0]).toMatch(/^\[mystery-phase\]/);
   });
 
+  it('does not print api_key in the event log', async () => {
+    const texts: string[] = [];
+    const listener = new NtfyListener('ktl-test', (_ev, text) => texts.push(text));
+    stubFetch([
+      ntfyLine('k1', 'ready', { endpoint: 'https://x.trycloudflare.com', api_key: 'sk-adoptionkey' }),
+      ntfyLine('k2', 'mystery-phase', { api_key: 'sk-adoptionkey', foo: 1 }),
+    ]);
+
+    await pollOnce(listener);
+
+    expect(texts.join('\n')).not.toContain('sk-adoptionkey');
+    expect(texts[0]).toContain('Servicio listo');
+  });
+
   it('deduplicates messages by raw id', async () => {
     const events: NtfyEvent[] = [];
     const listener = new NtfyListener('ktl-test', (ev) => events.push(ev));
