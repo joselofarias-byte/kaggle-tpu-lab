@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-kaggle-tpu-lab launcher — serve a model on a free Kaggle TPU from your terminal.
+Lanzador de kaggle-tpu-lab: levanta un modelo en una TPU gratuita de Kaggle.
 
-    python launch.py serve                          # Qwen3.8-27B: push the kernel and watch it come up
+    python launch.py serve                          # Qwen3.8-27B
     python launch.py serve --model glm53-flash      # GLM-5.3-Flash
     python launch.py serve --reasoning-effort medium --mtp 3
-    python launch.py status                # one-shot status + recent events
-    python launch.py stop                  # kill the TPU session
+    python launch.py status                         # estado + eventos recientes
+    python launch.py stop                           # detener la sesión TPU
 
-Requires the Kaggle CLI, authenticated:  pip install kaggle   (see README).
-Only the Python standard library is used here.
+Requiere Kaggle CLI autenticado: pip install kaggle
+Este lanzador usa solamente la biblioteca estándar de Python.
 """
 import argparse
 import base64
@@ -43,30 +43,30 @@ MODELS = {
                     "model_name": "glm-5.3-flash", "engine": HERE / "glm53-flash" / "engine" / "glm53", "minutes": 25},
 }
 
-# Friendly one-liners for each phase the kernel publishes.
+# Mensajes breves para las fases publicadas por los kernels.
 PHASE_TEXT = {
-    "install":            "Building the Python runtime with uv (~30 s)...",
-    "installed":          "Runtime ready.",
-    "mtp-patch-applied":  "MTP state-rollback patch applied.",
-    "mtp-patch-failed":   "MTP patch did not apply — speculative decoding disabled for safety.",
-    "cache-restored":     None,  # rendered below (depends on config coverage)
-    "cache-missing":      "No compile cache found — cold compile, add ~10 min.",
-    "weights-mounted":    "Weights found mounted (no download needed).",
-    "weights-download":   "Downloading weights from Hugging Face (~5 min)...",
-    "weights-downloaded": "Weights downloaded.",
-    "server-launch":      "Starting vLLM — loading 55 GB of weights, then TPU graph compile...",
-    "loading":            "Loading the weights onto the chips (~9 min)...",
+    "install":            "Preparando el entorno Python con uv (~30 s)...",
+    "installed":          "Entorno listo.",
+    "mtp-patch-applied":  "Parche de rollback MTP aplicado.",
+    "mtp-patch-failed":   "No se pudo aplicar MTP; se desactiva por seguridad.",
+    "cache-restored":     None,
+    "cache-missing":      "No hay caché XLA; la primera compilación demorará más.",
+    "weights-mounted":    "Pesos montados; no hace falta descargarlos.",
+    "weights-download":   "Descargando los pesos desde Hugging Face...",
+    "weights-downloaded": "Pesos descargados.",
+    "server-launch":      "Iniciando el motor de inferencia y cargando el modelo...",
+    "loading":            "Cargando los pesos en la TPU...",
     "loaded":             None,
     "warmed":             None,
     "tunnel-url":         None,
-    "compiling":          None,  # rendered with elapsed time below
-    "serving":            "Server is HEALTHY.",
+    "compiling":          None,
+    "serving":            "Servidor saludable.",
     "benchmark":          None,
     "ready":              None,
     "heartbeat":          None,
     "failed":             None,
-    "auto-shutdown":      "Keepalive window ended — kernel shut down cleanly.",
-    "stopped":            "Server exited unexpectedly.",
+    "auto-shutdown":      "Tiempo máximo cumplido; sesión detenida correctamente.",
+    "stopped":            "El servidor se detuvo de forma inesperada.",
 }
 
 
@@ -83,10 +83,10 @@ def say(msg):
 def check_auth():
     r = kaggle("kernels", "list", "-m", "--page-size", "1")
     if r.returncode != 0:
-        sys.exit("Kaggle CLI is not working or not authenticated.\n"
-                 "Install with `pip install kaggle`, then put your API token in place\n"
-                 "(https://www.kaggle.com/settings -> Create New Token).\n\n"
-                 f"Error was:\n{(r.stderr or r.stdout).strip()}")
+        sys.exit("Kaggle CLI no funciona o no está autenticado.\n"
+                 "Instalalo con `pip install kaggle` y configurá tu token de API.\n"
+                 "(Kaggle -> Settings -> Create New Token).\n\n"
+                 f"Error:\n{(r.stderr or r.stdout).strip()}")
 
 
 def kaggle_username(cli_arg):
@@ -96,7 +96,7 @@ def kaggle_username(cli_arg):
     m = re.search(r"username[:=]\s*(\S+)", (r.stdout or "") + (r.stderr or ""))
     if m and m.group(1) not in ("None", "-"):
         return m.group(1).strip("'\"")
-    sys.exit("Could not detect your Kaggle username — pass it with --user <name>.")
+    sys.exit("No pude detectar tu usuario de Kaggle; pasalo con --user <nombre>.")
 
 
 def engine_b64(pkg_dir):
@@ -181,22 +181,21 @@ def cmd_serve(args):
             "dataset_sources": datasets,
             "competition_sources": [], "kernel_sources": [], "model_sources": [],
         }, indent=1))
-        say(f"Pushing kernel {user}/{slug} (TPU v5e-8)...")
+        say(f"Enviando kernel {user}/{slug} (TPU v5e-8)...")
         r = kaggle("kernels", "push", "-p", str(td))
         out = (r.stdout or "") + (r.stderr or "")
         if "successfully pushed" not in out:
-            sys.exit(f"Push failed:\n{out.strip()}")
+            sys.exit(f"Falló el envío:\n{out.strip()}")
         for line in out.splitlines():
             if "not valid dataset sources" in line:
-                say(f"WARNING: {line.strip()} — the kernel will still run, "
-                    "but may need to download weights / compile cold.")
+                say(f"AVISO: {line.strip()} — el kernel seguirá, pero puede tener que descargar pesos o compilar en frío.")
 
     STATE_FILE.write_text(json.dumps(
         {"kernel": f"{user}/{slug}", "topic": topic, "api_key": api_key}))
-    say("Pushed. Kaggle takes a few minutes to provision the TPU and attach the "
-        f"datasets; the endpoint is usually live ~{model['minutes']} min after the kernel starts.")
-    say("Watching progress (Ctrl-C is safe — the server keeps running; "
-        "`python launch.py status` re-attaches, `... stop` kills it).")
+    say("Enviado. Kaggle puede demorar unos minutos en asignar la TPU y montar los datos; "
+        f"el endpoint suele estar listo ~{model['minutes']} min después de arrancar el kernel.")
+    say("Siguiendo el progreso. Ctrl-C es seguro: el servidor sigue activo; "
+        "`python launch.py status` reconecta y `python launch.py stop` lo detiene.")
     watch(f"{user}/{slug}", topic)
 
 
@@ -224,77 +223,84 @@ def read_events(topic, since):
 
 def render_event(ev):
     phase = ev.get("phase", "?")
+    mensaje = ev.get("message_es")
     if phase == "compiling":
         if "what" in ev:
-            say(f"Compiled {ev['what']} in {ev.get('secs', 0)} s")
+            say(f"Compilado {ev['what']} en {ev.get('secs', 0)} s")
         else:
-            say(f"Loading / compiling... {ev.get('elapsed_s', 0) // 60} min elapsed "
-                "(typically ~20 min with the env dataset, ~35 min without)")
+            say(mensaje or
+                f"Cargando / compilando... {ev.get('elapsed_s', 0) // 60} min transcurridos")
     elif phase == "loaded":
-        say(f"Weights on the chips after {ev.get('minutes', '?')} min (HBM {ev.get('hbm_gb', '?')} GB per chip); warming up...")
+        say(mensaje or
+            f"Pesos cargados en los chips tras {ev.get('minutes', '?')} min "
+            f"(HBM {ev.get('hbm_gb', '?')} GB por chip); calentando...")
     elif phase == "warmed":
-        say(f"Warm-up done in {ev.get('minutes', '?')} min; opening the tunnel...")
+        say(mensaje or f"Calentamiento terminado en {ev.get('minutes', '?')} min; abriendo el túnel...")
     elif phase == "cache-restored":
         if ev.get("covers_this_config", True):
-            say("XLA compile cache restored for this exact config — fast start.")
+            say(mensaje or "Caché XLA restaurada para esta configuración; inicio rápido.")
         else:
-            say("XLA compile cache restored, but not for this config — its graphs "
-                "compile cold (add ~10 min).")
+            say("Caché XLA restaurada, pero no cubre esta configuración; habrá compilación en frío.")
     elif phase == "tunnel-url":
-        say(f"Endpoint URL reserved: {ev.get('endpoint')}  (not live yet — wait for the banner)")
+        say(mensaje or f"Endpoint reservado: {ev.get('endpoint')} (todavía no está listo)")
     elif phase == "serving":
-        say(f"Server is HEALTHY after {ev.get('startup_secs', 0) // 60} min.")
+        say(mensaje or f"Servidor saludable tras {ev.get('startup_secs', 0) // 60} min.")
     elif phase == "benchmark":
-        say(f"Quick benchmark: {ev.get('decode_tok_s', '?')} tok/s single-stream decode "
-            f"(sanity: {ev.get('sanity', '')!r})")
+        say(mensaje or
+            f"Benchmark rápido: {ev.get('decode_tok_s', '?')} tok/s "
+            f"(comprobación: {ev.get('sanity', '')!r})")
     elif phase == "ready":
         print("\n" + "=" * 66)
-        print("  YOUR ENDPOINT IS LIVE")
-        print(f"  base URL : {ev['endpoint']}")
+        print("  ENDPOINT LISTO")
+        print(f"  URL base : {ev['endpoint']}")
         print(f"  API key  : {ev['api_key']}")
-        print(f"  model    : {ev['model']}   (context: {ev.get('max_model_len', '?')})")
+        print(f"  modelo   : {ev['model']}   (contexto: {ev.get('max_model_len', '?')})")
         print("=" * 66)
         base = ev["endpoint"] if ev["endpoint"].endswith("/v1") else ev["endpoint"] + "/v1"
         print(f"""
-Try it:
+Prueba rápida:
   curl {base}/chat/completions -H "Authorization: Bearer $KEY" \\
     -H "Content-Type: application/json" -d '{{
       "model": "{ev['model']}",
-      "messages": [{{"role": "user", "content": "Hello!"}}],
+      "messages": [{{"role": "user", "content": "Hola"}}],
       "chat_template_kwargs": {{"reasoning_effort": "low"}}
     }}'
-
-See the model folder's README for hooking this into Claude Code, Codex CLI, opencode, etc.
 """)
-        say(f"The kernel keeps serving for up to {ev.get('keepalive_min', '?')} min. "
-            "Ctrl-C here does NOT stop it; use `python launch.py stop`.")
+        say(f"La sesión seguirá sirviendo hasta {ev.get('keepalive_min', '?')} min. "
+            "Ctrl-C no la detiene; usá `python launch.py stop`.")
     elif phase == "heartbeat":
-        say(f"Still serving ({ev.get('up_min', '?')} min up) — {ev.get('endpoint', '')}")
-    elif phase == "stopped" and (ev.get("cause") or ev.get("hint") or ev.get("tail")):
-        say("Server exited unexpectedly." + (f" Root cause: {ev['cause']}" if ev.get("cause") else ""))
-        if ev.get("hint"):
-            say(f"Hint: {ev['hint']}")
+        say(mensaje or f"Servicio activo ({ev.get('up_min', '?')} min) — {ev.get('endpoint', '')}")
+    elif phase == "stopped":
+        say(mensaje or "El servidor se detuvo de forma inesperada.")
+        if ev.get("cause"):
+            say(f"Causa: {ev['cause']}")
+        if ev.get("hint_es"):
+            say(f"Sugerencia: {ev['hint_es']}")
+        elif ev.get("hint"):
+            say(f"Sugerencia: {ev['hint']}")
         if ev.get("tail"):
-            print("--- server error ---")
+            print("--- detalle del error ---")
             print(ev["tail"])
     elif phase == "failed":
-        say(f"FAILED at step {ev.get('step', '?')}.")
+        say(mensaje or f"FALLO en la etapa {ev.get('step', '?')}.")
+        if ev.get("error_code"):
+            say(f"Código: {ev['error_code']}")
         if ev.get("step") == "no-tpu":
-            say("Kaggle started this session without a TPU attached. Nothing in the kernel can fix that: "
-                "run `python launch.py stop`, then `serve` again.")
+            say("La sesión arrancó sin una TPU utilizable. Verificá que la cuenta tenga acceso a TPU "
+                "y volvé a lanzar la instancia.")
         if ev.get("cause"):
-            say(f"Root cause: {ev['cause']}")
-        if ev.get("hint"):
-            say(f"Hint: {ev['hint']}")
+            say(f"Causa: {ev['cause']}")
+        if ev.get("hint_es"):
+            say(f"Sugerencia: {ev['hint_es']}")
+        elif ev.get("hint"):
+            say(f"Sugerencia: {ev['hint']}")
         if ev.get("tail"):
-            print("--- last server output ---")
+            print("--- detalle del error ---")
             print(ev["tail"])
-        say("Full log: `python launch.py status` after the kernel exits, or the "
-            "kernel page on kaggle.com.")
+        say("El log completo queda disponible en la página del kernel de Kaggle.")
     else:
-        text = PHASE_TEXT.get(phase)
-        say(text if text else f"{phase} {json.dumps({k: v for k, v in ev.items() if k != 'phase'})}")
-
+        text = mensaje or PHASE_TEXT.get(phase)
+        say(text if text else f"{phase} {json.dumps({k: v for k, v in ev.items() if k != 'phase'}, ensure_ascii=False)}")
 
 def watch(kernel, topic):
     since = int(time.time()) - 600
@@ -315,19 +321,17 @@ def watch(kernel, topic):
             status = m.group(1) if m else "UNKNOWN"
             if status != last_status:
                 if status == "QUEUED":
-                    say("Kaggle: queued — waiting for a TPU v5e-8 slot...")
+                    say("Kaggle: en cola, esperando una TPU v5e-8...")
                 elif status == "RUNNING" and not seen_boot:
-                    say("Kaggle: provisioning the VM and attaching datasets "
-                        "(a few minutes)...")
+                    say("Kaggle: TPU asignada; preparando la VM y montando los datos...")
                 elif status in ("ERROR", "CANCELACKNOWLEDGED", "COMPLETE"):
-                    say(f"Kernel finished with status {status}.")
+                    say(f"Kernel finalizado con estado {status}.")
                     return
                 last_status = status
             time.sleep(30)
     except KeyboardInterrupt:
-        say("Detached. The kernel keeps running — `python launch.py status` to "
-            "re-attach, `python launch.py stop` to kill it.")
-
+        say("Seguimiento desconectado. La sesión sigue activa; usá `python launch.py status` "
+            "para reconectar o `python launch.py stop` para detenerla.")
 
 def cmd_build_env(args):
     """Maintainer flow. When the kernel finishes:
@@ -365,7 +369,7 @@ def cmd_build_env(args):
 
 def load_state():
     if not STATE_FILE.exists():
-        sys.exit("No launch state found — run `python launch.py serve` first.")
+        sys.exit("No hay estado de lanzamiento guardado; ejecutá `python launch.py serve` primero.")
     return json.loads(STATE_FILE.read_text())
 
 
@@ -385,10 +389,10 @@ def cmd_status(args):
 
 def cmd_stop(args):
     st = load_state()
-    say(f"Deleting kernel {st['kernel']} (terminates the TPU session)...")
+    say(f"Eliminando kernel {st['kernel']} (esto detiene la sesión TPU)...")
     p = subprocess.run([sys.executable, "-m", "kaggle", "kernels", "delete",
                         st["kernel"]], input="yes\n", capture_output=True, text=True)
-    say((p.stdout + p.stderr).strip() or "done")
+    say((p.stdout + p.stderr).strip() or "listo")
 
 
 def main():
@@ -396,7 +400,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("serve", help="push the serving kernel and watch it come up")
+    s = sub.add_parser("serve", help="enviar el kernel y seguir su arranque")
     s.add_argument("--model", default="qwen38-27b", choices=sorted(MODELS), help="which recipe (model folder) to serve")
     s.add_argument("--user", help="Kaggle username (auto-detected if possible)")
     s.add_argument("--slug", default=None, help="kernel name (default: the model's)")
@@ -443,11 +447,11 @@ def main():
     s.add_argument("--weights-dataset", default=WEIGHTS_DATASET)
     s.set_defaults(fn=cmd_build_env)
 
-    s = sub.add_parser("status", help="show current kernel status + recent events")
-    s.add_argument("--follow", "-f", action="store_true", help="keep watching")
+    s = sub.add_parser("status", help="mostrar estado actual + eventos recientes")
+    s.add_argument("--follow", "-f", action="store_true", help="seguir monitoreando")
     s.set_defaults(fn=cmd_status)
 
-    s = sub.add_parser("stop", help="terminate the TPU session")
+    s = sub.add_parser("stop", help="detener la sesión TPU")
     s.set_defaults(fn=cmd_stop)
 
     args = ap.parse_args()
