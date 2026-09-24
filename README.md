@@ -58,7 +58,8 @@ This fork adds a versioned event envelope for mobile clients: `event_version`, n
 collapsing them into a generic "Unknown cause".
 
 See [docs/ANDROID_ES.md](docs/ANDROID_ES.md) for the Android state model, error handling,
-and credential-storage guidance.
+and credential-storage guidance. [docs/FORK_AUDIT.md](docs/FORK_AUDIT.md) records
+which ideas were taken from other forks and which were left out.
 
 The terminal launcher also presents runtime status and diagnostics in Spanish.
 
