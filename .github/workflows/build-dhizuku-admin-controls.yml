@@ -1,0 +1,46 @@
+name: Build Dhizuku admin controls
+
+on:
+  push:
+    branches:
+      - "ci/dhizuku-admin-controls-build-20260925"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Dhizuku feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: joselofarias-byte/Dhizuku
+          ref: feature/admin-controls-20260925
+          path: dhizuku
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        working-directory: dhizuku
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --warning-mode=all assembleDebug
+
+      - name: Copy APK and checksum
+        run: |
+          cp dhizuku/app/build/outputs/apk/debug/app-debug.apk Dhizuku-2.12.1-admin-controls.apk
+          sha256sum Dhizuku-2.12.1-admin-controls.apk | tee Dhizuku-2.12.1-admin-controls.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dhizuku-2.12.1-admin-controls
+          path: |
+            Dhizuku-2.12.1-admin-controls.apk
+            Dhizuku-2.12.1-admin-controls.sha256
+          retention-days: 14
