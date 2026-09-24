@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "mradermacher-qwen35-27b-abliterated-gpu",
+  "display_name": "mradermacher Huihui Qwen3.5-27B abliterated Q4_K_M (candidato)",
+  "backend": "llama.cpp",
+  "accelerator": "gpu",
+  "source": {
+    "repository": "mradermacher/Huihui-Qwen3.5-27B-abliterated-GGUF",
+    "revision": "dcc4a772054979c455894098c9c0074b361a350b",
+    "base_model": "Qwen/Qwen3.5-27B",
+    "weight_parent": "huihui-ai/Huihui-Qwen3.5-27B-abliterated"
+  },
+  "model_file": "Huihui-Qwen3.5-27B-abliterated.Q4_K_M.gguf",
+  "sha256": "5a2321c22682c7109907d6a4c0293b9c6349bc239d4e7b9aaa1e14b98add4484",
+  "model_size_bytes": 16540272704,
+  "architecture": "qwen35",
+  "quantization": "Q4_K_M",
+  "context_size": 32768,
+  "architecture_context": 262144,
+  "resources": {
+    "min_vram_gb": 20,
+    "recommended_vram_gb": 32,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  },
+  "gpu": {"count": 2, "type": "Tesla T4", "tensor_parallel": null},
+  "tpu_compatible": false,
+  "launch_args": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "n_gpu_layers": "all",
+    "split_mode": "layer",
+    "tensor_split": "1,1",
+    "parallel": 2,
+    "mtp_tokens": 0
+  },
+  "served_model_name": "qwen3.5-27b-abliterated-q4",
+  "chat_template": "qwen35-embedded",
+  "tokenizer_source": "embedded-in-gguf",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "notes": [
+    "Cuantización estática de mradermacher del abliterado de huihui sobre Qwen/Qwen3.5-27B. La ficha declara license apache-2.0 y enlaza la licencia de Qwen/Qwen3.5-27B.",
+    "Metadato GGUF el 2026-09-24: architecture qwen35, context_length 262144. Q4_K_M = 16540272704 bytes. El SHA-256 es el oid LFS; el repo no publica SHA256SUMS.",
+    "Es otra generación (Qwen3.5), no un alias de Qwen3.8. Misma clase de tamaño que el Q4 que ya lanza este repo."
+  ],
+  "warnings": [
+    "No hay evaluación de rechazos en la ficha del cuantizador. La etiqueta abliterated/uncensored es la del modelo padre, no una medición de este archivo.",
+    "Hay proyectores multimodales en el repo (mmproj). Este motor no los descarga ni los pasa. Texto solamente, y aun así sin prueba.",
+    "No se sirvió. El contexto de lanzamiento propuesto queda en 32768 hasta medir KV en las dos T4."
+  ],
+  "experimental": true,
+  "launchable": false,
+  "trust_remote_code": false,
+  "tags": ["abliterated", "uncensored"]
+}

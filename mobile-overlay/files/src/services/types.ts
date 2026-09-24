@@ -48,6 +48,11 @@ export interface NtfyEvent {
   endpoint?: string;
   api_key?: string;
   model?: string;
+  /** Optional identity. Older clients ignore these fields. */
+  model_id?: string;
+  display_name?: string;
+  backend?: string;
+  accelerator?: string;
   minutes?: number | string;
   elapsed_s?: number;
   startup_secs?: number;
@@ -89,6 +94,11 @@ export interface LiveEndpoint {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Present when the kernel event names the running profile. UI may ignore them. */
+  modelId?: string;
+  displayName?: string;
+  backend?: string;
+  accelerator?: string;
   status: 'CONNECTING' | 'READY' | 'ERROR' | 'OFFLINE';
   uptimeMinutes?: number;
   tokensPerSec?: string;

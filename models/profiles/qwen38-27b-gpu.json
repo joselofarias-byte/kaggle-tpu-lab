@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "qwen38-27b-gpu",
+  "display_name": "Qwen3.8-27B UD-Q4_K_M (llama.cpp, dos T4)",
+  "aliases": ["qwen38-27b"],
+  "backend": "llama.cpp",
+  "accelerator": "gpu",
+  "source": {
+    "repository": "unsloth/Qwen3.8-27B-GGUF",
+    "revision": "4ca720788d1e01f1bff70c033e0d0028fd02e502",
+    "base_model": "Qwen/Qwen3.8-27B"
+  },
+  "model_file": "Qwen3.8-27B-UD-Q4_K_M.gguf",
+  "sha256": "322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482",
+  "model_size_bytes": 16464440224,
+  "architecture": "qwen3.8",
+  "quantization": "UD-Q4_K_M",
+  "context_size": 32768,
+  "architecture_context": 262144,
+  "resources": {
+    "min_vram_gb": 16,
+    "recommended_vram_gb": 32,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  },
+  "gpu": {
+    "count": 2,
+    "type": "Tesla T4",
+    "tensor_parallel": null,
+    "split_mode": "layer",
+    "tensor_split": "1,1"
+  },
+  "tpu_compatible": false,
+  "launch_args": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "n_gpu_layers": "all",
+    "split_mode": "layer",
+    "tensor_split": "1,1",
+    "parallel": 2,
+    "mtp_tokens": 0
+  },
+  "served_model_name": "qwen3.8-27b-q4",
+  "kernel_slug": "qwen38-t4x2-serve",
+  "chat_template": "embedded-in-gguf",
+  "tokenizer_source": "embedded-in-gguf",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "notes": [
+    "Mismo pin que qwen38-27b/gpu/serve_qwen38_gpu.py: repo, revisión, archivo, SHA-256 y tamaño.",
+    "El SHA-256 coincidió con el oid LFS de Hugging Face el 2026-09-24 (paths-info, sin descargar el GGUF).",
+    "El contexto de lanzamiento sigue en 32768. El contexto nativo de 262144 no se activa en esta ruta GPU."
+  ],
+  "warnings": [
+    "El binario llama.cpp y el GGUF no se volvieron a descargar en esta rama. La primera sesión GPU real debe recontar el SHA-256.",
+    "trust_remote_code está apagado. Un GGUF no lo necesita."
+  ],
+  "experimental": false,
+  "launchable": true,
+  "trust_remote_code": false,
+  "tags": []
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "qwen38-27b-tpu",
+  "display_name": "Qwen3.8-27B bf16 (vllm-tpu 0.28.0)",
+  "aliases": ["qwen38-27b"],
+  "backend": "vllm-tpu",
+  "accelerator": "tpu",
+  "legacy_recipe": "qwen38-27b",
+  "vllm_tpu_version": "0.28.0",
+  "source": {
+    "repository": "Qwen/Qwen3.8-27B",
+    "revision": null,
+    "base_model": "Qwen/Qwen3.8-27B",
+    "weights_dataset": "rahim3/qwen3-8-27b-bf16"
+  },
+  "model_file": null,
+  "sha256": null,
+  "architecture": "qwen3.8",
+  "quantization": "bf16",
+  "context_size": 262144,
+  "architecture_context": 262144,
+  "resources": {
+    "min_vram_gb": 128,
+    "recommended_vram_gb": 128,
+    "min_ram_gb": 32,
+    "recommended_ram_gb": 64
+  },
+  "tpu": {"type": "v5e-8", "chips": 8, "tensor_parallel": 8},
+  "tpu_compatible": true,
+  "launch_args": {"host": "127.0.0.1"},
+  "served_model_name": "qwen3.8-27b",
+  "chat_template": "qwen3.8",
+  "tokenizer_source": "checkpoint",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "notes": [
+    "Este perfil solo describe la receta TPU que ya existe. El lanzamiento sigue en qwen38-27b/kernel/serve_qwen38.py.",
+    "vllm-tpu queda en 0.28.0. No usa el parche ni los flags de la rama experimental 0.29."
+  ],
+  "warnings": [
+    "La revisión Hugging Face del checkpoint bf16 no está fijada en este perfil; el pin de ejecución es el dataset de Kaggle."
+  ],
+  "experimental": false,
+  "launchable": true,
+  "trust_remote_code": false,
+  "tags": []
+}

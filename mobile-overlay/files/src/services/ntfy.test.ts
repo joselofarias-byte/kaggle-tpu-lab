@@ -76,6 +76,36 @@ describe('NtfyListener.pollOnce', () => {
     expect(texts[2]).toContain('113.9 tok/s');
   });
 
+  it('keeps optional model identity fields on the event', async () => {
+    const events: NtfyEvent[] = [];
+    const listener = new NtfyListener('ktl-test', (ev) => events.push(ev));
+    stubFetch([
+      ntfyLine('id1', 'ready', {
+        event_version: 1,
+        state: 'ready',
+        message_es: 'GPU lista y servicio de inferencia disponible.',
+        model: 'qwen3.8-27b-q4',
+        model_id: 'qwen38-27b-gpu',
+        display_name: 'Qwen3.8-27B UD-Q4_K_M (llama.cpp, dos T4)',
+        backend: 'llama.cpp',
+        accelerator: 'gpu',
+        endpoint: 'https://x.trycloudflare.com/v1',
+      }),
+    ]);
+
+    await pollOnce(listener);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].phase).toBe('ready');
+    expect(events[0].event_version).toBe(1);
+    expect(events[0].message_es).toContain('GPU lista');
+    expect(events[0].model).toBe('qwen3.8-27b-q4');
+    expect(events[0].model_id).toBe('qwen38-27b-gpu');
+    expect(events[0].display_name).toContain('Qwen3.8-27B');
+    expect(events[0].backend).toBe('llama.cpp');
+    expect(events[0].accelerator).toBe('gpu');
+  });
+
   it('falls back to [phase] dump for unknown phases', async () => {
     const texts: string[] = [];
     const listener = new NtfyListener('ktl-test', (_ev, text) => texts.push(text));

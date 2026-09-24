@@ -100,3 +100,14 @@ Un evento `ready` no demuestra que el túnel siga respondiendo. La app y `launch
 ## Compatibilidad
 
 Los nuevos campos son aditivos. Clientes anteriores pueden seguir consumiendo únicamente `phase`, `endpoint`, `api_key`, `cause`, `hint`, `tail`, etc.
+
+## Identidad del modelo (opcional)
+
+`event_version` sigue en 1. El motor GPU llama.cpp puede agregar, en cualquier fase:
+
+- `model_id`: id del perfil (`qwen38-27b-gpu`)
+- `display_name`: nombre para mostrar
+- `backend`: `llama.cpp` en esta ruta
+- `accelerator`: `gpu`
+
+No reemplazan a `model` (el nombre servido, por ejemplo `qwen3.8-27b-q4`). Un cliente que no los conoce los ignora. La app los copia al endpoint en vivo si vienen, sin cambiar la pantalla. La ruta TPU de producción no está obligada a enviarlos.

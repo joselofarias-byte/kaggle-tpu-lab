@@ -18,12 +18,15 @@ jobs:
       - name: Compile Python sources
         run: |
           python -m py_compile launch.py
+          python -m py_compile models/profile.py
+          python -m py_compile models/gpu_launch.py
+          python -m py_compile models/engines/llama_cpp_gpu.py
           python -m py_compile qwen38-27b/kernel/serve_qwen38.py
           python -m py_compile qwen38-27b/gpu/serve_qwen38_gpu.py
           python -m py_compile glm53-flash/kernel/serve_glm53.py
           python -m py_compile tools/sync_notebook.py
           python -m py_compile tools/pack_notebook.py
       - name: Unit tests
-        run: python -m unittest tests.test_wave1_hardening
+        run: python -m unittest tests.test_wave1_hardening tests.test_wave2_profiles
       - name: Notebooks match kernel sources
         run: python tools/sync_notebook.py --check

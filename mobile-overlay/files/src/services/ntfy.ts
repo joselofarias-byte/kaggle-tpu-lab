@@ -113,7 +113,7 @@ export class NtfyListener {
             this.hasNotifiedReady = true;
             this.notifyApp(
               '🎉 ¡TPU lista!',
-              `El modelo ${evData.model || 'LLM'} está en línea. Tocá para abrir el chat.`
+              `El modelo ${evData.display_name || evData.model || 'LLM'} está en línea. Tocá para abrir el chat.`
             );
           }
         } catch {

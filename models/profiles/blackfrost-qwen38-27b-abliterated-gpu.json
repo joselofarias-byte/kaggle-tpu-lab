@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "id": "blackfrost-qwen38-27b-abliterated-gpu",
+  "display_name": "Blackfrost Qwen3.8-27B abliterated Q4_K_M (candidato)",
+  "backend": "llama.cpp",
+  "accelerator": "gpu",
+  "source": {
+    "repository": "Blackfrost-AI/Qwen3.8-27B-ABLITERATED-GGUF",
+    "revision": "994bb4e69663ec880a4d9a61604e6debc3a49b9a",
+    "base_model": "Qwen/Qwen3.8-27B",
+    "weight_parent": "Blackfrost-AI/Qwen3.8-27B-ABLITERATED-BF16"
+  },
+  "model_file": "Qwen3.8-27B-ABLITERATED-Q4_K_M.gguf",
+  "sha256": "5d53637a59cfcd3a4d8354e254ffd44943e5a693da2405a3e228c62962355509",
+  "model_size_bytes": 16810716384,
+  "architecture": "qwen35",
+  "quantization": "Q4_K_M",
+  "context_size": 32768,
+  "architecture_context": 262144,
+  "resources": {
+    "min_vram_gb": 20,
+    "recommended_vram_gb": 32,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  },
+  "gpu": {"count": 2, "type": "Tesla T4", "tensor_parallel": null},
+  "tpu_compatible": false,
+  "launch_args": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "n_gpu_layers": "all",
+    "split_mode": "layer",
+    "tensor_split": "1,1",
+    "parallel": 2,
+    "mtp_tokens": 0
+  },
+  "served_model_name": "qwen3.8-27b-abliterated-q4",
+  "chat_template": "embedded-in-gguf",
+  "tokenizer_source": "embedded-in-gguf",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "notes": [
+    "Candidato para el mismo motor llama.cpp. No está servible.",
+    "La ficha Hugging Face declara license apache-2.0 y architecture qwen35 en el metadato GGUF, contexto 262144.",
+    "El publicador dice que modificó la superficie de rechazo en los pesos, sin fine-tune ni pruning, y que el Q4_K_M pesa unos 16.8 GB.",
+    "SHA-256 y tamaño salen del oid LFS en la revisión indicada (paths-info, 2026-09-24), y coinciden con SHA256SUMS.txt del repo. No se descargó el archivo."
+  ],
+  "warnings": [
+    "No se cargó en una T4. Que el archivo quepa en 32 GB no demuestra que el binario fijado lo ejecute.",
+    "La plantilla embebida agrega un prompt de sistema del publicador. Eso es un prompt, no una prueba de cero rechazos, y puede combinarse con el sistema que mande el cliente.",
+    "La ficha dice que el publicador probó la carga en una NVIDIA B200, no en T4, y que el archivo trae cabeza MTP. Este motor lanza con mtp_tokens 0 y sin mmproj.",
+    "Q6_K (~22.4 GB) y Q8_0 (~29.0 GB) no son una elección realista para dos T4. Ver docs/GPU_CANDIDATES.md."
+  ],
+  "experimental": true,
+  "launchable": false,
+  "trust_remote_code": false,
+  "tags": ["abliterated", "uncensored"]
+}

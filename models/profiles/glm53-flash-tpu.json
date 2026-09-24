@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "glm53-flash-tpu",
+  "display_name": "GLM-5.3-Flash (motor JAX propio)",
+  "aliases": ["glm53-flash"],
+  "backend": "jax",
+  "accelerator": "tpu",
+  "legacy_recipe": "glm53-flash",
+  "source": {
+    "repository": "zai-org/GLM-5.3-Flash",
+    "revision": null,
+    "base_model": "zai-org/GLM-5.3-Flash"
+  },
+  "model_file": null,
+  "sha256": null,
+  "architecture": "glm-5.3-moe",
+  "quantization": "IQ3_XXS-experts+int8",
+  "context_size": 262144,
+  "architecture_context": 262144,
+  "resources": {
+    "min_vram_gb": 128,
+    "recommended_vram_gb": 128,
+    "min_ram_gb": 32,
+    "recommended_ram_gb": 64
+  },
+  "tpu": {"type": "v5e-8", "chips": 8, "tensor_parallel": 8},
+  "tpu_compatible": true,
+  "launch_args": {"host": "127.0.0.1"},
+  "served_model_name": "glm-5.3-flash",
+  "chat_template": "glm",
+  "tokenizer_source": "checkpoint",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "notes": [
+    "Describe la receta TPU existente. El kernel sigue siendo glm53-flash/kernel/serve_glm53.py.",
+    "No es vLLM. El motor es el paquete JAX del propio repositorio."
+  ],
+  "warnings": [],
+  "experimental": false,
+  "launchable": true,
+  "trust_remote_code": false,
+  "tags": []
+}

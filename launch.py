@@ -2,8 +2,11 @@
 """
 Lanzador de kaggle-tpu-lab: levanta un modelo en una TPU gratuita de Kaggle.
 
-    python launch.py serve                          # Qwen3.8-27B
-    python launch.py serve --model glm53-flash      # GLM-5.3-Flash
+    python launch.py serve                          # Qwen3.8-27B en TPU
+    python launch.py serve --model glm53-flash      # GLM-5.3-Flash en TPU
+    python launch.py serve --accelerator gpu        # Qwen3.8-27B Q4 en dos T4
+    python launch.py models                         # perfiles conocidos
+    python launch.py model-info qwen38-27b-gpu
     python launch.py serve --reasoning-effort medium --mtp 3
     python launch.py status                         # estado + eventos recientes
     python launch.py stop                           # detener la sesión TPU
@@ -29,6 +32,23 @@ import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from models.gpu_launch import (  # noqa: E402
+    CODE_FILE,
+    gpu_kernel_metadata,
+    gpu_overrides,
+    render_gpu_kernel,
+)
+from models.profile import (  # noqa: E402
+    ProfileError,
+    assert_servable,
+    format_model_info,
+    format_model_list,
+    legacy_tpu_recipe,
+    load_catalog,
+    resolve_profile,
+)
+
 KERNEL_SRC = HERE / "qwen38-27b" / "kernel" / "serve_qwen38.py"
 STATE_FILE = Path.home() / ".kaggle-tpu-lab.json"
 
@@ -160,54 +180,83 @@ def engine_b64(pkg_dir):
     return base64.b64encode(buf.getvalue()).decode()
 
 
-GPU_KERNEL = HERE / "qwen38-27b" / "gpu" / "serve_qwen38_gpu.py"
+def cmd_models(_args):
+    print(format_model_list(load_catalog()))
+
+
+def cmd_model_info(args):
+    catalog = load_catalog()
+    if args.profile in catalog:
+        print(format_model_info(catalog[args.profile]))
+        return
+    matches = [profile for profile in catalog.values() if args.profile in (profile.get("aliases") or [])]
+    if len(matches) == 1:
+        print(format_model_info(matches[0]))
+        return
+    if len(matches) > 1:
+        print(f"'{args.profile}' coincide con varios perfiles. Elegí un id:")
+        for profile in matches:
+            print(f"  {profile['id']}  ({profile['accelerator']})")
+        return
+    sys.exit(f"No existe el perfil '{args.profile}'. `python launch.py models` los lista.")
+
+
+def prepare_serve_selection(args):
+    """Resolve a profile before talking to Kaggle. TPU still uses the legacy kernel."""
+    try:
+        if getattr(args, "accelerator", "tpu") == "gpu":
+            profile = resolve_profile(args.model, "gpu")
+            assert_servable(profile)
+            return profile
+        args.model = legacy_tpu_recipe(args.model)
+    except ProfileError as exc:
+        sys.exit(str(exc))
+    if args.model not in MODELS:
+        sys.exit(f"No hay receta TPU para '{args.model}'.")
+    return None
 
 
 def cmd_serve_gpu(args, user):
-    """Push the dual-T4 llama.cpp recipe. Does not touch the TPU kernel."""
-    if args.model != "qwen38-27b":
-        sys.exit("El acelerador gpu solo está implementado para qwen38-27b.")
-    slug = args.slug or "qwen38-t4x2-serve"
+    """Push the shared llama.cpp engine for a GPU profile. Does not touch the TPU kernel."""
+    try:
+        profile = resolve_profile(args.model, "gpu")
+        assert_servable(profile)
+    except ProfileError as exc:
+        sys.exit(str(exc))
+    slug = args.slug or profile.get("kernel_slug") or (profile["id"] + "-serve")
     topic = "ktl-" + uuid.uuid4().hex[:20]
     api_key = "sk-" + secrets.token_hex(16)
-    cfg = {
-        "ntfy_topic": topic,
-        "api_key": api_key,
-        "keepalive_min": args.keepalive_min,
-        "ctx_size": min(args.max_model_len, 32768),
-    }
-    src = GPU_KERNEL.read_text()
-    src, n = re.subn(r"^CFG = None  # __LAUNCHER_CONFIG__.*$",
-                     f"CFG = {cfg!r}", src, count=1, flags=re.M)
-    if n != 1:
-        sys.exit(f"{GPU_KERNEL} is missing the __LAUNCHER_CONFIG__ line")
+    overrides = gpu_overrides(
+        profile,
+        api_key=api_key,
+        ntfy_topic=topic,
+        keepalive_min=args.keepalive_min,
+        max_model_len=args.max_model_len,
+    )
+    src = render_gpu_kernel(profile, overrides)
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
-        (td / GPU_KERNEL.name).write_text(src)
-        (td / "kernel-metadata.json").write_text(json.dumps({
-            "id": f"{user}/{slug}",
-            "title": slug,
-            "code_file": GPU_KERNEL.name,
-            "language": "python",
-            "kernel_type": "script",
-            "is_private": "true",
-            "enable_gpu": "true",
-            "enable_tpu": "false",
-            "enable_internet": "true",
-            "machine_shape": "NvidiaTeslaT4",
-            "dataset_sources": [],
-            "competition_sources": [], "kernel_sources": [], "model_sources": [],
-        }, indent=1))
-        say(f"Enviando kernel {user}/{slug} (GPU T4, cuota distinta de la TPU)...")
+        (td / CODE_FILE).write_text(src)
+        (td / "kernel-metadata.json").write_text(json.dumps(gpu_kernel_metadata(user, slug), indent=1))
+        say(f"Enviando kernel {user}/{slug} (GPU T4, perfil {profile['id']}, cuota distinta de la TPU)...")
         push_ok(kaggle("kernels", "push", "-p", str(td)))
-    write_state({"kernel": f"{user}/{slug}", "topic": topic, "api_key": api_key,
-                 "accelerator": "gpu", "model": "qwen38-27b"})
-    say("Enviado. El script exige dos T4; si Kaggle asigna otra GPU, termina antes de descargar el modelo.")
+    write_state({
+        "kernel": f"{user}/{slug}",
+        "topic": topic,
+        "api_key": api_key,
+        "accelerator": "gpu",
+        "backend": profile["backend"],
+        "model": profile["id"],
+        "display_name": profile["display_name"],
+        "served_model_name": profile["served_model_name"],
+    })
+    say("Enviado. El script exige las GPU del perfil; si Kaggle asigna otra, termina antes de descargar el modelo.")
     say("Siguiendo el progreso. Ctrl-C no detiene la sesión.")
     watch(f"{user}/{slug}", topic)
 
 
 def cmd_serve(args):
+    prepare_serve_selection(args)
     check_auth()
     user = kaggle_username(args.user)
     if getattr(args, "accelerator", "tpu") == "gpu":
@@ -504,10 +553,18 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    s = sub.add_parser("models", help="listar los perfiles de modelo")
+    s.set_defaults(fn=cmd_models)
+
+    s = sub.add_parser("model-info", help="mostrar un perfil (id o alias)")
+    s.add_argument("profile")
+    s.set_defaults(fn=cmd_model_info)
+
     s = sub.add_parser("serve", help="enviar el kernel y seguir su arranque")
-    s.add_argument("--model", default="qwen38-27b", choices=sorted(MODELS), help="which recipe (model folder) to serve")
+    s.add_argument("--model", default="qwen38-27b",
+                   help="receta o id de perfil (default: qwen38-27b)")
     s.add_argument("--accelerator", default="tpu", choices=["tpu", "gpu"],
-                   help="tpu (default, v5e-8) or gpu (Qwen Q4 on dual T4, separate quota)")
+                   help="tpu (default, v5e-8) or gpu (perfil llama.cpp en dos T4)")
     s.add_argument("--user", help="Kaggle username (auto-detected if possible)")
     s.add_argument("--slug", default=None, help="kernel name (default: the model's)")
     s.add_argument("--max-len", type=int, default=262144, help="glm53-flash: context capacity (a multiple of 32)")

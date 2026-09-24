@@ -11,9 +11,12 @@ across both GPUs, creates a temporary Cloudflare Quick Tunnel, runs a short
 self-test, and shuts everything down after ``keepalive_min``.
 
 Adapted from Kitkitkittt/kaggle-tpu-lab ``kernel/serve_qwen38_gpu.py``
-(commit 7d59604). It is a separate entrypoint from the TPU recipe:
-``launch.py serve --accelerator gpu``. llama-server binds to 127.0.0.1.
-cloudflared is the same 2026.9.1 pin as the TPU kernels.
+(commit 7d59604). llama-server binds to 127.0.0.1. cloudflared is the same
+2026.9.1 pin as the TPU kernels.
+
+``launch.py serve --accelerator gpu`` now renders ``models/engines/llama_cpp_gpu.py``
+from ``models/profiles/qwen38-27b-gpu.json`` (same repo, revision, filename,
+SHA-256, size, and context cap). This file remains the standalone Qwen entrypoint.
 """
 
 from __future__ import annotations
@@ -195,14 +198,23 @@ def require_dual_t4():
 
 
 def safe_extract(archive: Path, destination: Path):
+    """Extract a gzip tar, rejecting path traversal, symlinks, and hardlinks."""
     destination.mkdir(parents=True, exist_ok=True)
     root = destination.resolve()
     with tarfile.open(archive, "r:gz") as bundle:
-        for member in bundle.getmembers():
+        members = bundle.getmembers()
+        for member in members:
+            if member.issym() or member.islnk():
+                raise RuntimeError(f"refusing linked tar member {member.name}")
+            if os.path.isabs(member.name) or ".." in Path(member.name).parts:
+                raise RuntimeError(f"Unsafe archive member: {member.name}")
             target = (destination / member.name).resolve()
             if target != root and root not in target.parents:
                 raise RuntimeError(f"Unsafe archive member: {member.name}")
-        bundle.extractall(destination)
+        try:
+            bundle.extractall(destination, members=members, filter="data")
+        except TypeError:
+            bundle.extractall(destination, members=members)
 
 
 def prepare_llama_server():

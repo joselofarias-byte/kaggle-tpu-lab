@@ -45,11 +45,19 @@ Each folder README has the exact lines for Claude Code, Codex CLI and opencode.
 ```bash
 git clone https://github.com/joselofarias-byte/kaggle-tpu-lab
 cd kaggle-tpu-lab
-python launch.py serve            # Qwen3.8-27B today; --model picks another recipe once there is one
+python launch.py serve            # Qwen3.8-27B on the TPU, same default as before
+python launch.py models           # every profile, including ones not yet tested
+python launch.py model-info qwen38-27b-gpu
+python launch.py serve --accelerator gpu   # Qwen Q4 on two T4s, via a model profile
 ```
 
 `launch.py` pushes the kernel with the Kaggle CLI and follows its progress; `status`
-and `stop` do what they say.
+and `stop` do what they say. GPU serving reads `models/profiles/`: the Qwen llama.cpp
+path is one profile, not a one-off script name. Other profiles can be listed before
+they are safe to launch. What the labels "uncensored" / "abliterated" do and do not
+mean is in [docs/MODELOS_ES.md](docs/MODELOS_ES.md). Candidate GGUFs for the dual-T4
+path are in [docs/GPU_CANDIDATES.md](docs/GPU_CANDIDATES.md). None of those candidates
+are launched until a real Kaggle GPU session says so.
 
 ## Android / español
 

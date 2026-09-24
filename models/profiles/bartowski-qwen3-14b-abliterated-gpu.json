@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "bartowski-qwen3-14b-abliterated-gpu",
+  "display_name": "bartowski Qwen3-14B abliterated Q4_K_M (candidato)",
+  "backend": "llama.cpp",
+  "accelerator": "gpu",
+  "source": {
+    "repository": "bartowski/huihui-ai_Qwen3-14B-abliterated-GGUF",
+    "revision": "623c0f3fc42a4699d4583fb16e022942c003d1b7",
+    "base_model": "Qwen/Qwen3-14B",
+    "weight_parent": "huihui-ai/Qwen3-14B-abliterated"
+  },
+  "model_file": "huihui-ai_Qwen3-14B-abliterated-Q4_K_M.gguf",
+  "sha256": "d76889059a3bfab30bc565012a0184827ff2bdc10197f6babc24541b98451dbe",
+  "model_size_bytes": 9001749568,
+  "architecture": "qwen3",
+  "quantization": "Q4_K_M",
+  "context_size": 32768,
+  "architecture_context": 40960,
+  "resources": {
+    "min_vram_gb": 12,
+    "recommended_vram_gb": 16,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  },
+  "gpu": {"count": 2, "type": "Tesla T4", "tensor_parallel": null},
+  "tpu_compatible": false,
+  "launch_args": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "n_gpu_layers": "all",
+    "split_mode": "layer",
+    "tensor_split": "1,1",
+    "parallel": 2,
+    "mtp_tokens": 0
+  },
+  "served_model_name": "qwen3-14b-abliterated-q4",
+  "chat_template": "qwen3-embedded",
+  "tokenizer_source": "embedded-in-gguf",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "notes": [
+    "Cuantización imatrix de bartowski sobre huihui-ai/Qwen3-14B-abliterated. La ficha declara license apache-2.0 y enlaza la licencia de Qwen/Qwen3-14B.",
+    "Metadato GGUF consultado el 2026-09-24: architecture qwen3, context_length 40960. El Q4_K_M mide 9001749568 bytes.",
+    "El modelo base abliterado declara 14768307200 parámetros en safetensors. huihui describe el método como abliteración, no como un entrenamiento nuevo, y su aviso dice que no hay garantía de seguridad por defecto."
+  ],
+  "warnings": [
+    "No se ejecutó. Dos T4 sobran para el archivo de ~8.4 GiB, pero el motor actual igual exige dos T4 y el binario fijado no se probó con este GGUF.",
+    "Atención densa: el KV cache crece más que en Qwen3.8 híbrido. No subir el contexto por encima de 32768 hasta medirlo.",
+    "La etiqueta uncensored de la ficha no significa cero rechazos."
+  ],
+  "experimental": true,
+  "launchable": false,
+  "trust_remote_code": false,
+  "tags": ["abliterated", "uncensored"]
+}

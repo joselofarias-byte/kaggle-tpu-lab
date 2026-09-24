@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "rootmonster-qwen3-14b-abliterated-gpu",
+  "display_name": "RootMonsteR Qwen3-14B abliterated Q4_K_M (candidato)",
+  "backend": "llama.cpp",
+  "accelerator": "gpu",
+  "source": {
+    "repository": "RootMonsteR/Qwen3-14B-Abliterated-GGUF",
+    "revision": "aad7bb258333fa83991acef39e31a97677eb711b",
+    "base_model": "Qwen/Qwen3-14B",
+    "weight_parent": "RootMonsteR/Qwen3-14B-Abliterated"
+  },
+  "model_file": "qwen3-14b-abliterated-Q4_K_M.gguf",
+  "sha256": "c74b5bcfcf7d4c9386075cde43fd7a4580c602b46b90ad01d7fc58b696748bbb",
+  "model_size_bytes": 9001753792,
+  "architecture": "qwen3",
+  "quantization": "Q4_K_M",
+  "context_size": 32768,
+  "architecture_context": 40960,
+  "resources": {
+    "min_vram_gb": 12,
+    "recommended_vram_gb": 16,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  },
+  "gpu": {"count": 2, "type": "Tesla T4", "tensor_parallel": null},
+  "tpu_compatible": false,
+  "launch_args": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "n_gpu_layers": "all",
+    "split_mode": "layer",
+    "tensor_split": "1,1",
+    "parallel": 2,
+    "mtp_tokens": 0
+  },
+  "served_model_name": "qwen3-14b-heretic-q4",
+  "chat_template": "qwen3-embedded",
+  "tokenizer_source": "embedded-in-gguf",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "notes": [
+    "GGUF del publicador, cuantizado con llama.cpp sin imatrix. La ficha declara license apache-2.0 y enlaza la licencia de Qwen/Qwen3-14B.",
+    "El Q4_K_M mide 9001753792 bytes. El SHA-256 coincide con SHA256SUMS del repo y con el oid LFS de la revisión (2026-09-24, sin descargar el peso).",
+    "El modelo fuente dice ser una ablación direccional con Heretic v1.3.0, trial 33, sobre Qwen/Qwen3-14B. El publicador reporta KL 0.0333 y 10/100 rechazos contra 99/100 del base en su conjunto. Esos números no se reprodujeron aquí."
+  ],
+  "warnings": [
+    "La propia ficha fuente dice contexto nativo 32768 y 131072 con YaRN. El metadato GGUF de este repo dice context_length 40960. No se eligió el número mayor.",
+    "Sigue habiendo rechazos en la medición del publicador (10/100). No es cero.",
+    "No se probó en Kaggle. El Q5_K_M del mismo repo mide 10514570432 bytes y también cabe en peso, igual sin prueba."
+  ],
+  "experimental": true,
+  "launchable": false,
+  "trust_remote_code": false,
+  "tags": ["abliterated", "uncensored", "unfiltered"]
+}
