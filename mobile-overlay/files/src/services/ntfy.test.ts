@@ -56,7 +56,7 @@ describe('NtfyListener.pollOnce', () => {
 
     expect(seen).toHaveLength(3);
     expect(seen[0][1]).toContain('entorno Python');
-    expect(seen[1][1]).toContain('Hugging Face');
+    expect(seen[1][1]).toContain('pesos del modelo');
     expect(seen[2][1]).toContain('https://x.trycloudflare.com');
   });
 
