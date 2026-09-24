@@ -63,7 +63,7 @@ Not changed: `qwen38-27b/kernel/serve_qwen38.py`, `glm53-flash/kernel/serve_glm5
 - Base: `cursor/fork-audit-wave1-3ac3` (PR #3, head `75d25c8fbfa36e29c60800963f1281b33837cc2e`). That branch was not modified.
 - Branch: `cursor/model-profiles-wave2`
 - Implementation commit: `26e340460efa7dff0d35cb369824089d57745f42`
-- PR: draft, stacked on the Wave 1 branch, not on `main`. The URL is filled in the commit that follows this file once the draft exists.
+- PR: draft https://github.com/joselofarias-byte/kaggle-tpu-lab/pull/5 stacked on the Wave 1 branch, not on `main`.
 - PR #4 (`cursor/experimental-vllm-029-3ac3`) was not touched.
 
 ## Tests and results
