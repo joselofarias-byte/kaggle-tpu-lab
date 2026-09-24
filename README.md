@@ -18,9 +18,11 @@ know it is the first to run that model on a TPU.
 
 ## What you need
 
-A Kaggle account with TPU access (phone-verify it under Settings) and its free quota,
-around 20 TPU hours a week. Nothing to install for the notebook route. For the terminal
-route, Python 3.9+ and the Kaggle CLI.
+A Kaggle account with TPU access and its free quota, around 20 TPU hours a week.
+**Important:** Kaggle may require personal/phone verification before it actually assigns
+a TPU. A kernel can otherwise start as CPU-only even when TPU was requested.
+
+Nothing to install for the notebook route. For the terminal route, Python 3.9+ and the Kaggle CLI.
 
 ## How a session works
 
@@ -41,13 +43,24 @@ Each folder README has the exact lines for Claude Code, Codex CLI and opencode.
 ## From a terminal
 
 ```bash
-git clone https://github.com/ARahim3/kaggle-tpu-lab
+git clone https://github.com/joselofarias-byte/kaggle-tpu-lab
 cd kaggle-tpu-lab
 python launch.py serve            # Qwen3.8-27B today; --model picks another recipe once there is one
 ```
 
 `launch.py` pushes the kernel with the Kaggle CLI and follows its progress; `status`
 and `stop` do what they say.
+
+## Android / español
+
+This fork adds a versioned event envelope for mobile clients: `event_version`, normalized
+`state`, and `message_es`. Error events keep the real diagnostic fields instead of
+collapsing them into a generic "Unknown cause".
+
+See [docs/ANDROID_ES.md](docs/ANDROID_ES.md) for the Android state model, error handling,
+and credential-storage guidance.
+
+The terminal launcher also presents runtime status and diagnostics in Spanish.
 
 ## Adding a model
 
