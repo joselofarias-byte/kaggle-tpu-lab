@@ -15,6 +15,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import re
 import secrets
 import shutil
@@ -49,6 +50,7 @@ PHASE_TEXT = {
     "installed":          "Entorno listo.",
     "mtp-patch-applied":  "Parche de rollback MTP aplicado.",
     "mtp-patch-failed":   "No se pudo aplicar MTP; se desactiva por seguridad.",
+    "mtp-disabled":       "Checkpoint sin cabeza MTP; se sirve sin decodificación especulativa.",
     "cache-restored":     None,
     "cache-missing":      "No hay caché XLA; la primera compilación demorará más.",
     "weights-mounted":    "Pesos montados; no hace falta descargarlos.",
@@ -70,9 +72,10 @@ PHASE_TEXT = {
 }
 
 
-def kaggle(*args, capture=True):
-    cmd = [sys.executable, "-m", "kaggle", *args]
-    r = subprocess.run(cmd, capture_output=capture, text=True)
+def kaggle(*args, capture=True, input=None):
+    exe = shutil.which("kaggle")
+    cmd = [exe, *args] if exe else [sys.executable, "-m", "kaggle", *args]
+    r = subprocess.run(cmd, capture_output=capture, text=True, input=input)
     return r
 
 
@@ -99,6 +102,55 @@ def kaggle_username(cli_arg):
     sys.exit("No pude detectar tu usuario de Kaggle; pasalo con --user <nombre>.")
 
 
+def write_state(payload):
+    """Atomic replace of the launcher state file, mode 0600."""
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".kaggle-tpu-lab-", dir=str(STATE_FILE.parent))
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(payload))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, STATE_FILE)
+        os.chmod(STATE_FILE, 0o600)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def models_url(endpoint):
+    """OpenAI models URL. Accepts a bare origin or an origin that already ends in /v1."""
+    root = (endpoint or "").strip().rstrip("/")
+    if not root:
+        return ""
+    base = root if root.endswith("/v1") else root + "/v1"
+    return base + "/models"
+
+
+def probe_endpoint(endpoint, api_key, timeout=8):
+    """True when GET /v1/models returns 200. The key is not logged."""
+    url = models_url(endpoint)
+    if not url or not api_key:
+        return False
+    try:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def push_ok(result):
+    out = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0 or "successfully pushed" not in out:
+        sys.exit(f"Falló el envío:\n{out.strip()}")
+    return out
+
+
 def engine_b64(pkg_dir):
     """The engine package (its .py files) as a base64 tar.gz, embedded into the kernel script."""
     buf = io.BytesIO()
@@ -108,9 +160,59 @@ def engine_b64(pkg_dir):
     return base64.b64encode(buf.getvalue()).decode()
 
 
+GPU_KERNEL = HERE / "qwen38-27b" / "gpu" / "serve_qwen38_gpu.py"
+
+
+def cmd_serve_gpu(args, user):
+    """Push the dual-T4 llama.cpp recipe. Does not touch the TPU kernel."""
+    if args.model != "qwen38-27b":
+        sys.exit("El acelerador gpu solo está implementado para qwen38-27b.")
+    slug = args.slug or "qwen38-t4x2-serve"
+    topic = "ktl-" + uuid.uuid4().hex[:20]
+    api_key = "sk-" + secrets.token_hex(16)
+    cfg = {
+        "ntfy_topic": topic,
+        "api_key": api_key,
+        "keepalive_min": args.keepalive_min,
+        "ctx_size": min(args.max_model_len, 32768),
+    }
+    src = GPU_KERNEL.read_text()
+    src, n = re.subn(r"^CFG = None  # __LAUNCHER_CONFIG__.*$",
+                     f"CFG = {cfg!r}", src, count=1, flags=re.M)
+    if n != 1:
+        sys.exit(f"{GPU_KERNEL} is missing the __LAUNCHER_CONFIG__ line")
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        (td / GPU_KERNEL.name).write_text(src)
+        (td / "kernel-metadata.json").write_text(json.dumps({
+            "id": f"{user}/{slug}",
+            "title": slug,
+            "code_file": GPU_KERNEL.name,
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": "true",
+            "enable_gpu": "true",
+            "enable_tpu": "false",
+            "enable_internet": "true",
+            "machine_shape": "NvidiaTeslaT4",
+            "dataset_sources": [],
+            "competition_sources": [], "kernel_sources": [], "model_sources": [],
+        }, indent=1))
+        say(f"Enviando kernel {user}/{slug} (GPU T4, cuota distinta de la TPU)...")
+        push_ok(kaggle("kernels", "push", "-p", str(td)))
+    write_state({"kernel": f"{user}/{slug}", "topic": topic, "api_key": api_key,
+                 "accelerator": "gpu", "model": "qwen38-27b"})
+    say("Enviado. El script exige dos T4; si Kaggle asigna otra GPU, termina antes de descargar el modelo.")
+    say("Siguiendo el progreso. Ctrl-C no detiene la sesión.")
+    watch(f"{user}/{slug}", topic)
+
+
 def cmd_serve(args):
     check_auth()
     user = kaggle_username(args.user)
+    if getattr(args, "accelerator", "tpu") == "gpu":
+        cmd_serve_gpu(args, user)
+        return
     model = MODELS[args.model]
     slug = args.slug or model["slug"]
     topic = "ktl-" + uuid.uuid4().hex[:20]
@@ -178,20 +280,18 @@ def cmd_serve(args):
             "enable_gpu": "false",
             "enable_tpu": "true",
             "enable_internet": "true",
+            "machine_shape": "TpuV5E8",
             "dataset_sources": datasets,
             "competition_sources": [], "kernel_sources": [], "model_sources": [],
         }, indent=1))
         say(f"Enviando kernel {user}/{slug} (TPU v5e-8)...")
-        r = kaggle("kernels", "push", "-p", str(td))
-        out = (r.stdout or "") + (r.stderr or "")
-        if "successfully pushed" not in out:
-            sys.exit(f"Falló el envío:\n{out.strip()}")
+        out = push_ok(kaggle("kernels", "push", "-p", str(td)))
         for line in out.splitlines():
             if "not valid dataset sources" in line:
                 say(f"AVISO: {line.strip()} — el kernel seguirá, pero puede tener que descargar pesos o compilar en frío.")
 
-    STATE_FILE.write_text(json.dumps(
-        {"kernel": f"{user}/{slug}", "topic": topic, "api_key": api_key}))
+    write_state({"kernel": f"{user}/{slug}", "topic": topic, "api_key": api_key,
+                 "accelerator": "tpu", "model": args.model})
     say("Enviado. Kaggle puede demorar unos minutos en asignar la TPU y montar los datos; "
         f"el endpoint suele estar listo ~{model['minutes']} min después de arrancar el kernel.")
     say("Siguiendo el progreso. Ctrl-C es seguro: el servidor sigue activo; "
@@ -353,15 +453,15 @@ def cmd_build_env(args):
             "id": f"{user}/{args.slug}", "title": args.slug, "code_file": "build_env.py",
             "language": "python", "kernel_type": "script", "is_private": "true",
             "enable_gpu": "false", "enable_tpu": "true", "enable_internet": "true",
+            "machine_shape": "TpuV5E8",
             "dataset_sources": [args.weights_dataset],
             "competition_sources": [], "kernel_sources": [], "model_sources": [],
         }, indent=1))
         r = kaggle("kernels", "push", "-p", str(td))
         out = (r.stdout or "") + (r.stderr or "")
-        if "successfully pushed" not in out:
+        if "successfully pushed" not in out or r.returncode != 0:
             sys.exit(f"Push failed:\n{out.strip()}")
-    STATE_FILE.write_text(json.dumps({"kernel": f"{user}/{args.slug}", "topic": topic,
-                                      "api_key": ""}))
+    write_state({"kernel": f"{user}/{args.slug}", "topic": topic, "api_key": ""})
     say(f"Pushed {user}/{args.slug}. It serves each config once (~1.5 h total) and "
         "leaves xla_cache.tar / cloudflared / manifest.json in its output.")
     watch(f"{user}/{args.slug}", topic)
@@ -383,15 +483,19 @@ def cmd_status(args):
         render_event(ev)
     if any(ev.get("phase") == "ready" for _, ev in events):
         say(f"API key: {st['api_key']}")
+        endpoint = next((ev.get("endpoint") for _, ev in reversed(events) if ev.get("endpoint")), None)
+        if endpoint:
+            live = probe_endpoint(endpoint, st.get("api_key", ""))
+            say("Sonda /v1/models: TPU lista." if live else
+                "Sonda /v1/models: Sin conexión (el evento ready no alcanza para afirmar que el túnel responde).")
     if args.follow:
         watch(st["kernel"], st["topic"])
 
 
 def cmd_stop(args):
     st = load_state()
-    say(f"Eliminando kernel {st['kernel']} (esto detiene la sesión TPU)...")
-    p = subprocess.run([sys.executable, "-m", "kaggle", "kernels", "delete",
-                        st["kernel"]], input="yes\n", capture_output=True, text=True)
+    say(f"Eliminando kernel {st['kernel']} (esto detiene la sesión)...")
+    p = kaggle("kernels", "delete", st["kernel"], input="yes\n")
     say((p.stdout + p.stderr).strip() or "listo")
 
 
@@ -402,6 +506,8 @@ def main():
 
     s = sub.add_parser("serve", help="enviar el kernel y seguir su arranque")
     s.add_argument("--model", default="qwen38-27b", choices=sorted(MODELS), help="which recipe (model folder) to serve")
+    s.add_argument("--accelerator", default="tpu", choices=["tpu", "gpu"],
+                   help="tpu (default, v5e-8) or gpu (Qwen Q4 on dual T4, separate quota)")
     s.add_argument("--user", help="Kaggle username (auto-detected if possible)")
     s.add_argument("--slug", default=None, help="kernel name (default: the model's)")
     s.add_argument("--max-len", type=int, default=262144, help="glm53-flash: context capacity (a multiple of 32)")

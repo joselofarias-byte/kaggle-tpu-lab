@@ -32,8 +32,15 @@ jobs:
       - name: Apply our Android/Spanish overlay
         run: |
           cp -a mobile-overlay/files/. mobile-src/
+          cp qwen38-27b/kernel/serve_qwen38.py mobile-src/kernels/serve_qwen38.py
+          cp glm53-flash/kernel/serve_glm53.py mobile-src/kernels/serve_glm53.py
+          rm -rf mobile-src/kernels/glm53
+          mkdir -p mobile-src/kernels/glm53
+          cp glm53-flash/engine/glm53/*.py mobile-src/kernels/glm53/
           test -f mobile-src/src/services/secureStore.ts
           test -f mobile-src/android/app/src/main/java/com/kaggletpulab/app/SecureStoragePlugin.java
+          grep -q "event_version" mobile-src/kernels/serve_qwen38.py
+          grep -q "CLOUDFLARED_SHA256" mobile-src/kernels/serve_qwen38.py
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5

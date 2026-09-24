@@ -21,7 +21,7 @@ A cold run leaves `jax_cache/` (everything it compiled) and `base/` (the non-exp
 tokenizer, ~11 GB) in /kaggle/working, so its output can be turned into the serve dataset ("New dataset" from the
 kernel output) that later runs attach instead of the FP8 datasets.
 """
-import base64, collections, glob, hashlib, io, json, os, queue, re, secrets, shutil, subprocess, sys, tarfile, threading, time, urllib.request, uuid
+import base64, collections, glob, hashlib, hmac, io, json, os, queue, re, secrets, shutil, subprocess, sys, tarfile, tempfile, threading, time, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -80,6 +80,13 @@ PORT = int(CFG["port"])
 WORK = Path("/kaggle/working") if Path("/kaggle/working").is_dir() else Path("/tmp")
 CACHE_DIR = WORK / "jax_cache"
 CLOUDFLARED = Path("/tmp/cloudflared")
+# Same pin as the Qwen kernel. Re-verified 2026-09-24 against the official asset.
+CLOUDFLARED_VERSION = "2026.9.1"
+CLOUDFLARED_SHA256 = "03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc"
+CLOUDFLARED_URL = (
+    "https://github.com/cloudflare/cloudflared/releases/download/"
+    f"{CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+)
 T0 = time.time()
 LOG_LINES = []
 
@@ -140,16 +147,44 @@ def _event_message_es(phase, extra):
     if phase == "auto-shutdown":
         return "Tiempo máximo alcanzado; instancia detenida correctamente."
     if phase == "failed":
-        if extra.get("step") == "no-tpu":
+        step = extra.get("step") or extra.get("error_code")
+        if step in ("no-tpu", "tpu-topology"):
             return "Kaggle inició la sesión sin una TPU utilizable. Verificá la cuenta/acelerador y volvé a lanzar."
+        if step == "no-internet":
+            return "La sesión no tiene Internet. Activá Internet en las opciones y volvé a lanzar."
+        if step == "tunnel-binary":
+            return "No se pudo verificar el binario de cloudflared. La sesión se detuvo por seguridad."
         return "La instancia falló durante el arranque o la ejecución."
     if phase == "stopped":
         return "El servicio se detuvo de forma inesperada."
     return phase
 
 
+def public_event_fields(phase, extra):
+    """``ready`` keeps api_key for Android adoption. Other phases drop it."""
+    out = dict(extra)
+    if phase != "ready":
+        out.pop("api_key", None)
+    return out
+
+
+def redact(text):
+    text = str(text)
+    try:
+        key = CFG.get("api_key") or ""
+    except Exception:
+        key = ""
+    if key:
+        text = text.replace(key, "[REDACTED]")
+    text = re.sub(r"sk-[A-Za-z0-9]{16,}", "[REDACTED]", text)
+    text = re.sub(r"glm-[A-Za-z0-9]{16,}", "[REDACTED]", text)
+    text = re.sub(r"(?i)(bearer\s+)[^\s\"']+", r"\1[REDACTED]", text)
+    return text
+
+
 def publish(phase, **extra):
     """Publica eventos versionados y aptos para clientes móviles, sin romper consumidores existentes."""
+    extra = public_event_fields(phase, extra)
     payload = {
         "event_version": EVENT_VERSION,
         "phase": phase,
@@ -157,7 +192,7 @@ def publish(phase, **extra):
         "message_es": _event_message_es(phase, extra),
         **extra,
     }
-    log(f"PHASE {phase}", json.dumps(payload, ensure_ascii=False))
+    log(f"PHASE {phase}", redact(json.dumps(payload, ensure_ascii=False)))
     if not CFG["ntfy_topic"]:
         return
     try:
@@ -195,17 +230,90 @@ def hbm():
 def fail(step, msg):
     """Detiene la ejecución conservando diagnóstico estructurado para CLI y clientes móviles."""
     log("   " + msg)
+    hints = {
+        "no-tpu": "La cuenta debe estar verificada para usar TPU. Si ya lo está, detené la sesión y volvé a lanzarla.",
+        "no-internet": "Activá Internet en Session options y volvé a lanzar. El túnel y pip lo necesitan.",
+        "tunnel-binary": "No se ejecutó un cloudflared sin verificar. Revisá Internet y volvé a lanzar.",
+    }
     publish("failed", step=step, error_code=step, cause=msg,
-            hint_es=("La cuenta debe estar verificada para usar TPU. Si ya lo está, detené la sesión y volvé a lanzarla."
-                     if step == "no-tpu" else ""),
-            recoverable=(step == "no-tpu"), tail=msg)
+            hint_es=hints.get(step, ""),
+            recoverable=step in hints, tail=msg)
     sys.exit(1)
+
+
+def sanitize_tpu_env():
+    """Drop poisoned TPU_WORKER_* vars before JAX builds the mesh."""
+    dropped = []
+    for name in ("TPU_WORKER_HOSTNAMES", "TPU_WORKER_ADDRS"):
+        val = os.environ.pop(name, None)
+        if val is not None:
+            dropped.append(f"{name}={val.strip()[:70]!r}")
+    if dropped:
+        log("   removed TPU metadata env vars: " + ", ".join(dropped))
+
+
+def verify_sha256(path, expected_hex):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return hmac.compare_digest(h.hexdigest(), expected_hex.strip().lower())
+
+
+def fetch_cloudflared():
+    """Pinned download. Raises on mismatch so we never chmod an unverified binary."""
+    dest = Path(CLOUDFLARED)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_file() and verify_sha256(dest, CLOUDFLARED_SHA256):
+        log("   cloudflared already matches the pin", CLOUDFLARED_VERSION)
+        return
+    fd, tmp = tempfile.mkstemp(prefix=".cloudflared-", dir=str(dest.parent))
+    try:
+        digest = hashlib.sha256()
+        with os.fdopen(fd, "wb") as out:
+            with urllib.request.urlopen(CLOUDFLARED_URL, timeout=60) as response:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    out.write(chunk)
+            if not hmac.compare_digest(digest.hexdigest(), CLOUDFLARED_SHA256):
+                raise RuntimeError("cloudflared SHA-256 mismatch; refusing to execute")
+            out.flush()
+            os.fsync(out.fileno())
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, dest)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    if not verify_sha256(dest, CLOUDFLARED_SHA256):
+        raise RuntimeError("cloudflared changed during install; refusing to execute")
+    log("   verified official cloudflared", CLOUDFLARED_VERSION)
+
+
+def safe_extract_tar_bytes(data, dest):
+    """Extract a gzip tar only when every member stays inside *dest*."""
+    root = Path(dest).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
+        for member in tf.getmembers():
+            if member.issym() or member.islnk():
+                raise ValueError(f"refusing linked tar member {member.name}")
+            target = (root / member.name).resolve()
+            if target != root and root not in target.parents:
+                raise ValueError(f"unsafe tar member {member.name}")
+        tf.extractall(root)
 
 
 def preflight():
     """Look before the slow steps (~20 s): the datasets attached, Internet on (pip, cloudflared) and a real TPU present.
     Kaggle sometimes starts a "TPU" session with no TPU (a CPU-only container, most often on new or not-yet-verified
     accounts): jax then sees one CPU device and the build dies minutes later with a sharding error."""
+    sanitize_tpu_env()
     need = list(CFG["expert_datasets"]) + ([] if CFG["serve_dataset"] and mounts_of([CFG["serve_dataset"]]) else
                                            ([CFG["serve_dataset"]] if CFG["serve_dataset"] and not mounts_of(CFG["base_datasets"]) else list(CFG["base_datasets"])))
     missing = [n for n in need if not mounts_of([n])]
@@ -249,17 +357,17 @@ if not CFG["skip_runtime"]:
     if CFG["libtpu"]:
         sh([sys.executable, "-m", "pip", "install", "-q", f"libtpu=={CFG['libtpu']}"], f"libtpu=={CFG['libtpu']}")
     if ENGINE_B64 and not ENGINE_B64.startswith("__"):
-        with tarfile.open(fileobj=io.BytesIO(base64.b64decode(ENGINE_B64)), mode="r:gz") as tf:
-            tf.extractall(WORK)
+        safe_extract_tar_bytes(base64.b64decode(ENGINE_B64), WORK)
         sys.path.insert(0, str(WORK))
         log(f"   engine package extracted to {WORK}/glm53")
     elif not Path("glm53").is_dir():
         sys.exit("no glm53/ package next to this script and nothing embedded — run the notebook's engine cell first")
 
-if CFG["tunnel"] and not CLOUDFLARED.exists():
-    urllib.request.urlretrieve("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64", CLOUDFLARED)
-    CLOUDFLARED.chmod(0o755)
-    log("   cloudflared downloaded")
+if CFG["tunnel"]:
+    try:
+        fetch_cloudflared()
+    except Exception as e:  # noqa: BLE001
+        fail("tunnel-binary", f"cloudflared fetch failed: {e}")
 
 import numpy as np                      # noqa: E402  (after the runtime pins: libtpu must be installed before jax loads)
 import jax, jax.numpy as jnp            # noqa: E402
@@ -1319,7 +1427,9 @@ if globals().get("SERVE_FOREVER", True):
     while time.time() - t_serve < CFG["keepalive_min"] * 60:
         time.sleep(120)
         if SCHED.thread is not None and not SCHED.thread.is_alive():
-            publish("stopped", reason="scheduler-exit")
+            log("   the engine scheduler exited before the scheduled auto-shutdown")
+            publish("stopped", reason="scheduler-exit",
+                    hint_es="El motor se detuvo antes del apagado programado. Revisá el log de la celda.")
             sys.exit(1)
         up = int((time.time() - t_serve) / 60)
         if up % 10 < 2:

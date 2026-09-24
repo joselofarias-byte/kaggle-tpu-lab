@@ -21,6 +21,8 @@ text_only, ~6 with fast_start). Without the env dataset the compile is cold (+15
 """
 import base64
 import collections
+import hashlib
+import hmac
 import struct
 import zlib
 import glob
@@ -33,6 +35,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -86,6 +89,16 @@ PY = f"{VENV}/bin/python"
 XLA_CACHE = "/tmp/xla_cache"
 WORK = Path("/kaggle/working") if Path("/kaggle/working").is_dir() else Path("/tmp")
 RAW_LOG = WORK / "vllm.log"          # every line vLLM/pip print, for debugging
+# Pinned cloudflared. Re-verified 2026-09-24 against the official release asset
+# (sha256sum matched CLOUDFLARED_SHA256). A dataset copy is used only when it
+# matches this digest. The unpinned GitHub download URL is not used.
+# Source: k0valik Stage D (which absorbed qdubois), adapted to our event envelope.
+CLOUDFLARED_VERSION = "2026.9.1"
+CLOUDFLARED_SHA256 = "03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc"
+CLOUDFLARED_URL = (
+    "https://github.com/cloudflare/cloudflared/releases/download/"
+    f"{CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+)
 CLOUDFLARED = Path("/tmp/cloudflared")
 T0 = time.time()
 PY_VER = f"{sys.version_info.major}.{sys.version_info.minor}"
@@ -101,6 +114,9 @@ if CFG["fast_start"]:
 os.environ.pop("TPU_LIBRARY_PATH", None)
 
 _raw = open(RAW_LOG, "a", buffering=1)
+# Byte offset where THIS server run starts. vllm.log is append-mode, so a
+# rerun must not blame the previous run's traceback (k0valik Stage C).
+_LOG_START = 0
 
 
 def log(*parts):
@@ -168,17 +184,39 @@ def _event_message_es(phase, extra):
         return f"Benchmark: {extra.get('decode_tok_s', '?')} tok/s."
     if phase == "auto-shutdown":
         return "Tiempo máximo alcanzado; instancia detenida correctamente."
+    if phase == "mtp-disabled":
+        return "Este checkpoint no trae cabeza MTP; se sirve sin decodificación especulativa."
     if phase == "failed":
-        if extra.get("step") == "no-tpu":
+        step = extra.get("step") or extra.get("error_code")
+        if step in ("no-tpu", "tpu-topology"):
             return "Kaggle inició la sesión sin una TPU utilizable. Verificá la cuenta/acelerador y volvé a lanzar."
+        if step == "no-internet":
+            return "La sesión no tiene Internet. Activá Internet en las opciones y volvé a lanzar."
+        if step == "tunnel-binary":
+            return "No se pudo verificar el binario de cloudflared. La sesión se detuvo por seguridad."
+        if step == "cache-extract":
+            return "El archivo de caché XLA no es seguro y no se extrajo."
         return "La instancia falló durante el arranque o la ejecución."
     if phase == "stopped":
         return "El servicio se detuvo de forma inesperada."
     return phase
 
 
+def public_event_fields(phase, extra):
+    """Fields that may leave the kernel on ntfy.
+
+    ``ready`` keeps ``api_key`` so Android can adopt a queued session it did
+    not mint. Every other phase drops it. Logs still pass through ``redact``.
+    """
+    out = dict(extra)
+    if phase != "ready":
+        out.pop("api_key", None)
+    return out
+
+
 def publish(phase, **extra):
     """Publica eventos versionados y aptos para clientes móviles, sin romper consumidores existentes."""
+    extra = public_event_fields(phase, extra)
     payload = {
         "event_version": EVENT_VERSION,
         "phase": phase,
@@ -186,7 +224,7 @@ def publish(phase, **extra):
         "message_es": _event_message_es(phase, extra),
         **extra,
     }
-    log(f"PHASE {phase}", json.dumps(payload, ensure_ascii=False))
+    log(f"PHASE {phase}", redact(json.dumps(payload, ensure_ascii=False)))
     if not CFG["ntfy_topic"]:
         return
     try:
@@ -207,7 +245,7 @@ def sh(cmd, tag, show=None, env=None):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          text=True, env=env)
     for line in p.stdout:
-        line = line.rstrip()
+        line = redact(line.rstrip())
         if not line:
             continue
         tail.append(line)
@@ -231,16 +269,136 @@ def find_input(*patterns):
     return None
 
 
-def fetch_cloudflared():
-    if CLOUDFLARED.exists():
-        return
+def verify_sha256(path, expected_hex):
+    """True iff *path* hashes to *expected_hex* (constant-time compare)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return hmac.compare_digest(h.hexdigest(), expected_hex.strip().lower())
+
+
+def redact(text):
+    """Scrub the endpoint key and generic credential shapes from log streams.
+
+    The notebook READY banner uses ``log()`` directly so the person watching
+    the cell can still copy the key. Pip, vLLM, and the PHASE line go through
+    here. Not a general PII scrubber.
+    """
+    text = str(text)
     try:
-        urllib.request.urlretrieve(
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
-            CLOUDFLARED)
-        CLOUDFLARED.chmod(0o755)
-    except Exception as e:
-        log(f"(cloudflared download failed: {e})")
+        key = CFG.get("api_key") or ""
+    except Exception:
+        key = ""
+    if key:
+        text = text.replace(key, "[REDACTED]")
+    text = re.sub(r"sk-[A-Za-z0-9]{16,}", "[REDACTED]", text)
+    text = re.sub(r"glm-[A-Za-z0-9]{16,}", "[REDACTED]", text)
+    text = re.sub(r"(?i)(bearer\s+)[^\s\"']+", r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)(?<![A-Za-z_.-])(token\s*[:=]\s*)[^\s\"']+", r"\1[REDACTED]", text)
+    return text
+
+
+def safe_tar_members(archive):
+    """Reject tar-slip members (absolute paths, ``..``) before extraction.
+
+    The XLA cache comes from a user-attached dataset. Raises ValueError on the
+    first unsafe member; returns the member count otherwise.
+    """
+    import tarfile
+    with tarfile.open(archive) as tf:
+        members = tf.getmembers()
+    bad = [m.name for m in members
+           if os.path.isabs(m.name) or ".." in Path(m.name).parts]
+    if bad:
+        raise ValueError(f"unsafe tar members in {archive}: {bad[:3]}")
+    return len(members)
+
+
+def has_mtp_head(model_dir):
+    """True if the checkpoint index names MTP tensors.
+
+    False on any doubt: a missing index must not enable speculation.
+    """
+    try:
+        idx = json.loads(Path(model_dir, "model.safetensors.index.json").read_text())
+        names = idx.get("weight_map", {})
+        return any("mtp" in n.lower() for n in names)
+    except Exception:
+        return False
+
+
+def _install_verified_binary(src, dest):
+    """Atomically install an already digest-verified binary with 0755 perms."""
+    dest = Path(dest)
+    fd, tmp = tempfile.mkstemp(prefix=".cloudflared-", dir=str(dest.parent))
+    try:
+        with os.fdopen(fd, "wb") as out, open(src, "rb") as inp:
+            shutil.copyfileobj(inp, out)
+            out.flush()
+            os.fsync(out.fileno())
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, dest)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def fetch_cloudflared():
+    """Download-to-temp, verify the pin, then atomic replace.
+
+    A dataset-bundled copy is reused only when its digest matches. Anything
+    else raises; the caller aborts instead of executing an unverified binary.
+    """
+    dest = Path(CLOUDFLARED)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dataset_copy = None
+    try:
+        b = globals().get("bundle")
+        if b:
+            cand = Path(b) / "cloudflared"
+            if cand.is_file():
+                dataset_copy = cand
+    except Exception:
+        dataset_copy = None
+    if dataset_copy is not None:
+        try:
+            if verify_sha256(dataset_copy, CLOUDFLARED_SHA256):
+                log("   using dataset cloudflared copy (digest matches the pin)")
+                _install_verified_binary(dataset_copy, dest)
+                return
+            log("   dataset cloudflared copy does not match the pin -> fresh download")
+        except Exception as e:
+            log(f"   dataset cloudflared copy unusable ({e}) -> fresh download")
+    fd, tmp = tempfile.mkstemp(prefix=".cloudflared-", dir=str(dest.parent))
+    try:
+        digest = hashlib.sha256()
+        with os.fdopen(fd, "wb") as out:
+            with urllib.request.urlopen(CLOUDFLARED_URL, timeout=60) as response:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    out.write(chunk)
+            if not hmac.compare_digest(digest.hexdigest(), CLOUDFLARED_SHA256):
+                raise RuntimeError("cloudflared SHA-256 mismatch; refusing to execute")
+            out.flush()
+            os.fsync(out.fileno())
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, dest)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        except OSError:
+            pass
+    if not verify_sha256(dest, CLOUDFLARED_SHA256):
+        raise RuntimeError("cloudflared changed during install; refusing to execute")
+    log("   verified official cloudflared", CLOUDFLARED_VERSION)
 
 
 # gzip+base64 of patches/mtp-rollback-v0280.diff; regenerated by tools/embed_patch.py
@@ -303,6 +461,72 @@ def install_runtime(built=None):
     return "pip" if rc == 0 else None
 
 
+def sanitize_tpu_env():
+    """Drop poisoned TPU_WORKER_* values before libtpu starts.
+
+    On a Kaggle v5e-8 the eight chips are in one VM. A failed metadata lookup
+    stores the warning text in these variables and PJRT then refuses to start.
+    """
+    dropped = []
+    for name in ("TPU_WORKER_HOSTNAMES", "TPU_WORKER_ADDRS"):
+        val = os.environ.pop(name, None)
+        if val is not None:
+            dropped.append(f"{name}={val.strip()[:70]!r}")
+    if dropped:
+        log("   removed TPU metadata env vars (a single-VM TPU does not need them): "
+            + ", ".join(dropped))
+
+
+def tpu_topology_ok():
+    """Return True, False, or None (inconclusive).
+
+    A reported device list that is not eight TPUs fails the run. An empty or
+    unparseable probe falls through to ``tpu_check`` so a missing JAX answer
+    is not stricter than the check we already shipped.
+    """
+    probe = (
+        "import json, jax\n"
+        "print(json.dumps([{'platform': d.platform, 'kind': d.device_kind, "
+        "'id': d.id} for d in jax.devices()]))"
+    )
+    try:
+        r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+                           timeout=180)
+    except Exception as e:  # noqa: BLE001
+        log(f"   (TPU topology check skipped: {e})")
+        return None
+    devices = []
+    if r.returncode == 0 and r.stdout.strip():
+        try:
+            devices = json.loads(r.stdout.strip().splitlines()[-1])
+        except json.JSONDecodeError:
+            devices = []
+    summary = [f"{d.get('platform')}:{d.get('id')} ({d.get('kind')})" for d in devices]
+    if len(devices) == 8 and all(d.get("platform") == "tpu" for d in devices):
+        log("   TPU topology check OK:", ", ".join(summary))
+        return True
+    if not devices:
+        log("   TPU topology check inconclusive; falling through to the existing TPU check")
+        return None
+    log("   TPU topology check FAILED:", ", ".join(summary))
+    return False
+
+
+def internet_check():
+    """Fail in seconds when Internet is off, instead of dying inside pip retries."""
+    try:
+        urllib.request.urlopen("https://pypi.org/simple/pip/", timeout=20).read(1)
+        log("   Internet check OK")
+    except Exception as e:  # noqa: BLE001
+        msg = (f"no Internet from this session ({str(e)[:120]}): Session options -> Internet ON "
+               "(a phone-verified Kaggle account is needed for that), then run again.")
+        log("   " + msg)
+        publish("failed", step="no-internet", error_code="no-internet", cause=msg,
+                hint_es="Activá Internet en Session options y volvé a lanzar. El túnel y pip lo necesitan.",
+                recoverable=True, tail=msg)
+        sys.exit(1)
+
+
 def tpu_check():
     """Kaggle sometimes starts a "TPU" session with no TPU attached (a CPU-only container; most often on new or
     not-yet-verified accounts). jax then sees one device and vLLM dies minutes later with "Insufficient devices for
@@ -346,7 +570,8 @@ def server_death_report(max_lines=60):
     """What killed vLLM, from vllm.log: the root-cause exception line, the first error block and a hint for the
     causes we have seen. The console tail alone scrolls the cause away. Returns (cause, block, hint)."""
     try:
-        lines = [l for l in RAW_LOG.read_text(errors="replace").splitlines() if l.startswith("[vllm]")]
+        raw = RAW_LOG.read_bytes()[globals().get("_LOG_START", 0):]
+        lines = [l for l in raw.decode(errors="replace").splitlines() if l.startswith("[vllm]")]
     except Exception:  # noqa: BLE001
         return "", "", ""
     strip = re.compile(r"^\[vllm\] (?:\((?:EngineCore|APIServer|Worker)[^)]*\) )?(?:ERROR|CRITICAL) [\d-]+ [\d:]+ \[[^\]]+\] ?")
@@ -375,8 +600,16 @@ def server_death_report(max_lines=60):
 def server_died(server, phase, **extra):
     """Log why the vLLM server exited (root cause first), publish it, and stop the kernel."""
     cause, block, hint = server_death_report()
+    rc = getattr(server, "returncode", None)
+    if not cause and not hint:
+        if rc == 0:
+            hint = ("clean exit with no error in this run's log: something outside vLLM stopped it "
+                    "(Save & Run All / Commit kills the session — use an interactive session, "
+                    "or check the keepalive loop)")
+        else:
+            hint = (f"no known cause in this run's log — attach {RAW_LOG} when reporting")
     tail = "\n".join(list(server.tail)[-40:]) if getattr(server, "tail", None) else ""
-    log(f"server exited rc={server.returncode}" + (f" — root cause: {cause}" if cause else ""))
+    log(f"server exited rc={rc}" + (f" — root cause: {cause}" if cause else ""))
     if hint:
         log(f"   -> {hint}")
     if block:
@@ -385,15 +618,41 @@ def server_died(server, phase, **extra):
         log("--- last output ---\n" + tail)
     log(f"full log: {RAW_LOG}")
     head = (f"root cause: {cause}\n" if cause else "") + (f"{hint}\n" if hint else "")
-    publish(phase, rc=server.returncode, cause=cause, hint=hint,
-            tail=(head + "\n" + (block or tail)[-2200:]).strip(), **extra)
+    hint_es = ""
+    if "no working TPU" in (hint or ""):
+        hint_es = "La cuenta debe estar verificada para usar TPU. Si ya lo está, detené la sesión y volvé a lanzarla."
+    elif "__delitem__" in (hint or ""):
+        hint_es = "Un cliente pidió JSON mode con MTP y async scheduling. Relanzá con async scheduling desactivado o mtp 0."
+    elif "ran out of HBM" in (hint or ""):
+        hint_es = "La TPU se quedó sin memoria. Bajá el contexto o la cantidad de secuencias."
+    fields = {
+        "rc": rc,
+        "cause": cause,
+        "hint": hint,
+        "tail": redact((head + "\n" + (block or tail)[-2200:]).strip()),
+    }
+    if hint_es:
+        fields["hint_es"] = hint_es
+        fields["error_code"] = extra.get("error_code") or ("no-tpu" if "TPU" in hint_es else "server-exit")
+    publish(phase, **fields, **extra)
     sys.exit(1)
 
 
 # ---------------- 1. runtime ----------------
 banner(1, "Python runtime", f"vllm-tpu {CFG['vllm_tpu_version']}")
-tpu_check()
-threading.Thread(target=fetch_cloudflared, daemon=True).start()
+sanitize_tpu_env()
+_topo = tpu_topology_ok()
+if _topo is False:
+    _msg = ("this session does not have 8 TPU chips. Kaggle sometimes starts a TPU "
+            "session on CPU. Stop it, set Accelerator -> TPU VM v5e-8, and run again.")
+    log("   " + _msg)
+    publish("failed", step="tpu-topology", error_code="tpu-topology", cause=_msg,
+            hint_es="La cuenta debe estar verificada para usar TPU. Si ya lo está, detené la sesión y volvé a lanzarla.",
+            recoverable=True, expected=8, tail=_msg)
+    sys.exit(1)
+if _topo is not True:
+    tpu_check()
+internet_check()
 bundle_root = find_input(CFG["env_dataset"].split("/")[-1], "qwen38-tpu-env*")
 bundle, manifest = None, {}
 if bundle_root:
@@ -404,9 +663,6 @@ if bundle_root:
         manifest = json.loads(Path(hits[0]).read_text())
     else:
         bundle = bundle_root
-if bundle and Path(bundle, "cloudflared").exists() and not CLOUDFLARED.exists():
-    shutil.copy(Path(bundle, "cloudflared"), CLOUDFLARED)
-    CLOUDFLARED.chmod(0o755)
 if manifest and (manifest.get("python") != PY_VER
                  or manifest.get("vllm_tpu_version") != CFG["vllm_tpu_version"]):
     log(f"   env dataset was built for python {manifest.get('python')} / vllm-tpu "
@@ -415,6 +671,14 @@ if manifest and (manifest.get("python") != PY_VER
     manifest = {}
 if not bundle:
     log(f"   env dataset not attached (expected {CFG['env_dataset']}) -> cold compile later")
+try:
+    fetch_cloudflared()
+except Exception as e:
+    msg = f"cloudflared fetch failed: {e}"
+    publish("failed", step="tunnel-binary", error_code="tunnel-binary", cause=msg,
+            hint_es="No se ejecutó un cloudflared sin verificar. Revisá Internet y volvé a lanzar.",
+            recoverable=True, tail=msg)
+    sys.exit(1)
 
 t = time.time()
 publish("install", vllm_tpu=CFG["vllm_tpu_version"])
@@ -438,6 +702,14 @@ cache_tar = (Path(bundle, "xla_cache.tar") if bundle and Path(bundle, "xla_cache
              else find_input("*/xla_cache*.tar.gz", "xla_cache*.tar.gz"))
 cache_dir = find_input("*/*/xla_cache", "*/xla_cache", "xla_cache")
 if cache_tar:
+    try:
+        safe_tar_members(str(cache_tar))
+    except ValueError as e:
+        msg = str(e)
+        publish("failed", step="cache-extract", error_code="cache-extract", cause=msg,
+                hint_es="El dataset de caché incluye rutas fuera de /tmp. No se extrajo.",
+                recoverable=False, tail=msg)
+        sys.exit(1)
     flags = "-xf" if str(cache_tar).endswith(".tar") else "-xzf"
     sh(["tar", flags, str(cache_tar), "-C", "/tmp"], "tar")
 elif cache_dir:
@@ -473,6 +745,11 @@ else:
         "*.safetensors", "*.json", "*.txt", "tokenizer*", "vocab*", "merges*"])
     publish("weights-downloaded", secs=int(time.time() - t))
 
+if model_path and CFG["mtp_tokens"] > 0 and not has_mtp_head(model_path):
+    log("   no MTP tensors in the checkpoint index -> disabling speculative decoding")
+    publish("mtp-disabled", reason="no MTP tensors in index — serving without speculative decoding")
+    CFG["mtp_tokens"] = 0
+
 
 # ---------------- 4. vLLM server ----------------
 NOISE = ("vllm._C", "metadata.google.internal", "Triton is installed", "Transparent hugepages",
@@ -488,6 +765,7 @@ def server_args(cfg):
             "--tensor-parallel-size", "8",
             "--max-model-len", str(cfg["max_model_len"]),
             "--max-num-seqs", str(cfg["max_num_seqs"]),
+            "--host", "127.0.0.1",
             "--port", str(PORT),
             "--api-key", cfg["api_key"],
             "--served-model-name", cfg["served_model_name"],
@@ -595,6 +873,12 @@ def launch_server(cfg):
     publish("server-launch", max_model_len=cfg["max_model_len"],
             max_num_seqs=cfg["max_num_seqs"], mtp=cfg["mtp_tokens"],
             text_only=cfg["text_only"], min_token_bucket=cfg["min_token_bucket"])
+    global _LOG_START
+    try:
+        _raw.flush()
+        _LOG_START = RAW_LOG.stat().st_size
+    except Exception:
+        _LOG_START = 0
     tail = collections.deque(maxlen=200)
     p = subprocess.Popen(server_args(cfg), stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, env=os.environ.copy())
@@ -602,7 +886,7 @@ def launch_server(cfg):
 
     def pump():
         for line in p.stdout:
-            line = line.rstrip()
+            line = redact(line.rstrip())
             if line:
                 tail.append(line)
                 _raw.write(f"[vllm] {line}\n")
@@ -868,10 +1152,6 @@ server = launch_server(CFG)
 banner(5, "Public URL")
 url = None
 tunnel = None
-for _ in range(60):  # cloudflared download runs in the background from step 1
-    if CLOUDFLARED.exists():
-        break
-    time.sleep(2)
 if CLOUDFLARED.exists():
     tunnel = subprocess.Popen([str(CLOUDFLARED), "tunnel", "--url", f"http://127.0.0.1:{PORT}",
                                "--no-autoupdate", "--protocol", "quic"],
