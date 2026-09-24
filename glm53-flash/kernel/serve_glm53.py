@@ -101,14 +101,69 @@ def banner(step, title, note=""):
     log("=" * 70)
 
 
+EVENT_VERSION = 1
+
+def _event_state(phase):
+    if phase in ("ready", "serving", "heartbeat", "benchmark"):
+        return "ready"
+    if phase in ("failed", "stopped"):
+        return "error"
+    if phase == "auto-shutdown":
+        return "stopped"
+    return "starting"
+
+
+def _event_message_es(phase, extra):
+    if phase in ("install", "runtime"):
+        return "Preparando el entorno de ejecución."
+    if phase in ("installed", "runtime-ready"):
+        return "Entorno de ejecución listo."
+    if phase == "weights-mounted":
+        return "Pesos del modelo montados."
+    if phase == "weights-download":
+        return "Descargando los pesos del modelo."
+    if phase == "weights-downloaded":
+        return "Pesos del modelo descargados."
+    if phase in ("server-launch", "loading"):
+        return "Iniciando el motor y cargando el modelo en la TPU."
+    if phase == "compiling":
+        mins = int(extra.get("elapsed_s", 0) or 0) // 60
+        return f"Compilando gráficos XLA ({mins} min transcurridos)."
+    if phase == "tunnel-url":
+        return "Endpoint público reservado; todavía no está listo."
+    if phase in ("ready", "serving"):
+        return "TPU lista y servicio de inferencia disponible."
+    if phase == "heartbeat":
+        return f"Servicio activo ({extra.get('up_min', '?')} min)."
+    if phase == "benchmark":
+        return f"Benchmark: {extra.get('decode_tok_s', '?')} tok/s."
+    if phase == "auto-shutdown":
+        return "Tiempo máximo alcanzado; instancia detenida correctamente."
+    if phase == "failed":
+        if extra.get("step") == "no-tpu":
+            return "Kaggle inició la sesión sin una TPU utilizable. Verificá la cuenta/acelerador y volvé a lanzar."
+        return "La instancia falló durante el arranque o la ejecución."
+    if phase == "stopped":
+        return "El servicio se detuvo de forma inesperada."
+    return phase
+
+
 def publish(phase, **extra):
-    """Progress event: always logged; also pushed to ntfy if a topic is set."""
-    log(f"PHASE {phase}", json.dumps(extra) if extra else "")
+    """Publica eventos versionados y aptos para clientes móviles, sin romper consumidores existentes."""
+    payload = {
+        "event_version": EVENT_VERSION,
+        "phase": phase,
+        "state": _event_state(phase),
+        "message_es": _event_message_es(phase, extra),
+        **extra,
+    }
+    log(f"PHASE {phase}", json.dumps(payload, ensure_ascii=False))
     if not CFG["ntfy_topic"]:
         return
     try:
-        body = {"topic": CFG["ntfy_topic"], "title": f"kaggle-tpu-lab {phase}", "message": json.dumps({"phase": phase, **extra})}
-        req = urllib.request.Request("https://ntfy.sh", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        body = {"topic": CFG["ntfy_topic"], "title": f"kaggle-tpu-lab {phase}", "message": json.dumps(payload, ensure_ascii=False)}
+        req = urllib.request.Request("https://ntfy.sh", data=json.dumps(body, ensure_ascii=False).encode(),
+                                     headers={"Content-Type": "application/json; charset=utf-8"})
         urllib.request.urlopen(req, timeout=10)
     except Exception as e:  # noqa: BLE001
         log(f"(ntfy publish failed: {e})")
@@ -138,9 +193,12 @@ def hbm():
 
 
 def fail(step, msg):
-    """Stop with a plain message (the launcher prints `step` and `tail` of a "failed" phase)."""
+    """Detiene la ejecución conservando diagnóstico estructurado para CLI y clientes móviles."""
     log("   " + msg)
-    publish("failed", step=step, tail=msg)
+    publish("failed", step=step, error_code=step, cause=msg,
+            hint_es=("La cuenta debe estar verificada para usar TPU. Si ya lo está, detené la sesión y volvé a lanzarla."
+                     if step == "no-tpu" else ""),
+            recoverable=(step == "no-tpu"), tail=msg)
     sys.exit(1)
 
 

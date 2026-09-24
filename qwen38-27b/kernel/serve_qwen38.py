@@ -120,16 +120,80 @@ def banner(step, title, note=""):
     log("=" * 70)
 
 
+EVENT_VERSION = 1
+
+def _event_state(phase):
+    if phase in ("ready", "serving", "heartbeat", "benchmark"):
+        return "ready"
+    if phase in ("failed", "stopped"):
+        return "error"
+    if phase == "auto-shutdown":
+        return "stopped"
+    return "starting"
+
+
+def _event_message_es(phase, extra):
+    if phase == "install":
+        return "Preparando el entorno Python para la TPU."
+    if phase == "installed":
+        return "Entorno Python listo."
+    if phase == "mtp-patch-applied":
+        return "Parche MTP aplicado correctamente."
+    if phase == "mtp-patch-failed":
+        return "No se pudo aplicar MTP; se continúa sin decodificación especulativa."
+    if phase == "cache-restored":
+        return "Caché de compilación XLA restaurada."
+    if phase == "cache-missing":
+        return "No hay caché XLA; la compilación inicial demorará más."
+    if phase == "weights-mounted":
+        return "Pesos del modelo montados."
+    if phase == "weights-download":
+        return "Descargando los pesos del modelo."
+    if phase == "weights-downloaded":
+        return "Pesos del modelo descargados."
+    if phase == "server-launch":
+        return "Iniciando el motor de inferencia."
+    if phase == "loading":
+        return "Cargando el modelo en la TPU."
+    if phase == "compiling":
+        mins = int(extra.get("elapsed_s", 0) or 0) // 60
+        return f"Compilando gráficos XLA ({mins} min transcurridos)."
+    if phase == "tunnel-url":
+        return "Endpoint público reservado; todavía no está listo."
+    if phase in ("ready", "serving"):
+        return "TPU lista y servicio de inferencia disponible."
+    if phase == "heartbeat":
+        return f"Servicio activo ({extra.get('up_min', '?')} min)."
+    if phase == "benchmark":
+        return f"Benchmark: {extra.get('decode_tok_s', '?')} tok/s."
+    if phase == "auto-shutdown":
+        return "Tiempo máximo alcanzado; instancia detenida correctamente."
+    if phase == "failed":
+        if extra.get("step") == "no-tpu":
+            return "Kaggle inició la sesión sin una TPU utilizable. Verificá la cuenta/acelerador y volvé a lanzar."
+        return "La instancia falló durante el arranque o la ejecución."
+    if phase == "stopped":
+        return "El servicio se detuvo de forma inesperada."
+    return phase
+
+
 def publish(phase, **extra):
-    """Progress event: always logged; also pushed to ntfy if a topic is set."""
-    log(f"PHASE {phase}", json.dumps(extra) if extra else "")
+    """Publica eventos versionados y aptos para clientes móviles, sin romper consumidores existentes."""
+    payload = {
+        "event_version": EVENT_VERSION,
+        "phase": phase,
+        "state": _event_state(phase),
+        "message_es": _event_message_es(phase, extra),
+        **extra,
+    }
+    log(f"PHASE {phase}", json.dumps(payload, ensure_ascii=False))
     if not CFG["ntfy_topic"]:
         return
     try:
         body = {"topic": CFG["ntfy_topic"], "title": f"kaggle-tpu-lab {phase}",
-                "message": json.dumps({"phase": phase, **extra})}
-        req = urllib.request.Request("https://ntfy.sh", data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
+                "message": json.dumps(payload, ensure_ascii=False)}
+        req = urllib.request.Request("https://ntfy.sh", data=json.dumps(body, ensure_ascii=False).encode(),
+                                     headers={"Content-Type": "application/json; charset=utf-8"})
         urllib.request.urlopen(req, timeout=10)
     except Exception as e:
         log(f"(ntfy publish failed: {e})")
@@ -272,7 +336,9 @@ def tpu_check():
            "fix that. Stop the session and start it again. If it repeats, run `import jax; print(jax.device_count())` "
            "in a fresh cell first: it must print 8 before this script is worth running.")
     log("   " + msg)
-    publish("failed", step="no-tpu", tail=msg)
+    publish("failed", step="no-tpu", error_code="no-tpu", cause=msg,
+            hint_es="La cuenta debe estar verificada para usar TPU. Si ya lo está, detené la sesión y volvé a lanzarla.",
+            recoverable=True, tail=msg)
     sys.exit(1)
 
 
