@@ -110,7 +110,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return sessions.find((s) => s.account === accId);
   };
 
-  const anyEn ejecución = sessions.some((s) => !s.done);
+  const anyRunning = sessions.some((s) => !s.done);
   const isRaceActive = sessions.some((s) => !s.done && !!s.raceGroupId);
 
   // ponytail: static lookup table for status badges
@@ -329,7 +329,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
               Estado de cuentas ({accounts.length} cuentas)
             </span>
-            {anyEn ejecución && (
+            {anyRunning && (
               <button
                 className="btn btn-danger btn-sm"
                 style={{ padding: '4px 10px', fontSize: '11px' }}
@@ -626,7 +626,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <div>
                         <div style={{ fontWeight: 600, fontSize: '13px' }}>{acc.name}</div>
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          @{acc.username || 'usuario no configurado'} · {acc.isValid ? 'Verified' : 'Sin verificar'}
+                          @{acc.username || 'usuario no configurado'} · {acc.isValid ? 'Verificada' : 'Sin verificar'}
                         </div>
                       </div>
                     </div>
