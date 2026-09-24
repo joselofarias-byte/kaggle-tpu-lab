@@ -1,0 +1,104 @@
+name: Build Android ES
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/mobile-es-secure-v1-20260924"
+  pull_request:
+    paths:
+      - "mobile-overlay/**"
+      - ".github/workflows/mobile-android-es.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout our overlay repository
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned mobile upstream
+        uses: actions/checkout@v4
+        with:
+          repository: afterexam/kaggle-tpu-lab-mobile
+          ref: 253a8dd20e7cbb96998c6f03b340dc2087f896c4
+          path: mobile-src
+
+      - name: Apply our Android/Spanish overlay
+        run: |
+          cp -a mobile-overlay/files/. mobile-src/
+          test -f mobile-src/src/services/secureStore.ts
+          test -f mobile-src/android/app/src/main/java/com/kaggletpulab/app/SecureStoragePlugin.java
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: mobile-src/package-lock.json
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: "21"
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        working-directory: mobile-src
+        run: npm ci
+
+      - name: Generate kernel templates
+        working-directory: mobile-src
+        run: python3 generate_templates.py
+
+      - name: Run unit tests
+        working-directory: mobile-src
+        run: npm test
+
+      - name: Build web application
+        working-directory: mobile-src
+        run: npm run build
+
+      - name: Sync Capacitor Android
+        working-directory: mobile-src
+        run: npx cap sync android
+
+      - name: Verify secure plugin survived sync
+        run: |
+          grep -q "SecureStoragePlugin.class" mobile-src/android/app/src/main/java/com/kaggletpulab/app/MainActivity.java
+          test -f mobile-src/android/app/src/main/java/com/kaggletpulab/app/SecureStoragePlugin.java
+          grep -q 'applicationId "com.joselofarias.kaggletpulab"' mobile-src/android/app/build.gradle
+
+      - name: Build Debug APK
+        working-directory: mobile-src/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Package APK and checksum
+        run: |
+          cp mobile-src/android/app/build/outputs/apk/debug/app-debug.apk kaggle-tpu-lab-es-v1.2.0-es1.apk
+          sha256sum kaggle-tpu-lab-es-v1.2.0-es1.apk | tee kaggle-tpu-lab-es-v1.2.0-es1.sha256
+          ls -lh kaggle-tpu-lab-es-v1.2.0-es1.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaggle-tpu-lab-es-apk
+          path: |
+            kaggle-tpu-lab-es-v1.2.0-es1.apk
+            kaggle-tpu-lab-es-v1.2.0-es1.sha256
+          retention-days: 14
