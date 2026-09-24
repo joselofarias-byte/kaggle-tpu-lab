@@ -9,7 +9,7 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
-  Copiar,
+  Copy,
   Check,
   Cpu,
   SlidersHorizontal,
@@ -371,7 +371,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </>
                     ) : (
                       <>
-                        <Copiar size={12} />
+                        <Copy size={12} />
                         <span>Copiar</span>
                       </>
                     )}
@@ -636,13 +636,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <button
                       className="icon-btn"
                       style={{ padding: '2px 5px', fontSize: '10.5px', gap: '3px' }}
-                      title="Copiar full response"
+                      title="Copiar respuesta completa"
                       onClick={() => copySnippet(m.content, m.id)}
                     >
                       {copiedCode === m.id ? (
                         <Check size={11} color="var(--accent-emerald)" />
                       ) : (
-                        <Copiar size={11} />
+                        <Copy size={11} />
                       )}
                       <span>{copiedCode === m.id ? 'Copiado' : 'Copiar'}</span>
                     </button>
@@ -805,8 +805,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     style={{ padding: '6px 8px', fontSize: '11px', gap: '4px' }}
                     onClick={() => copyBundleConfig('pair', 'pair')}
                   >
-                    {copiedKey === 'pair' ? <Check size={12} color="#fff" /> : <Copiar size={12} />}
-                    <span>{copiedKey === 'pair' ? 'Copiado' : 'Copiar URL+Key'}</span>
+                    {copiedKey === 'pair' ? <Check size={12} color="#fff" /> : <Copy size={12} />}
+                    <span>{copiedKey === 'pair' ? 'Copiado' : 'Copiar URL+clave'}</span>
                   </button>
 
                   <button
@@ -815,7 +815,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     onClick={() => copyBundleConfig('env', 'env')}
                   >
                     {copiedKey === 'env' ? <Check size={12} color="var(--accent-emerald)" /> : <Code2 size={12} />}
-                    <span>{copiedKey === 'env' ? 'Copiado' : 'Copiar .env Format'}</span>
+                    <span>{copiedKey === 'env' ? 'Copiado' : 'Copiar formato .env'}</span>
                   </button>
                 </div>
               </div>
@@ -840,7 +840,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     style={{ padding: '4px 8px' }}
                     onClick={() => copySnippet(currentEndpoint.baseUrl, 'url')}
                   >
-                    {copiedCode === 'url' ? <Check size={12} color="var(--accent-emerald)" /> : <Copiar size={12} />}
+                    {copiedCode === 'url' ? <Check size={12} color="var(--accent-emerald)" /> : <Copy size={12} />}
                   </button>
                 )}
               </div>
@@ -865,7 +865,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     style={{ padding: '4px 8px' }}
                     onClick={() => copySnippet(currentEndpoint.apiKey, 'key')}
                   >
-                    {copiedCode === 'key' ? <Check size={12} color="var(--accent-emerald)" /> : <Copiar size={12} />}
+                    {copiedCode === 'key' ? <Check size={12} color="var(--accent-emerald)" /> : <Copy size={12} />}
                   </button>
                 )}
               </div>
