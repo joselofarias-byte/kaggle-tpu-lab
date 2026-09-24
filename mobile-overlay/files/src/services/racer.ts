@@ -2,6 +2,7 @@ import { KaggleAccount, LaunchConfig, RaceSession, LiveEndpoint, NtfyEvent, getS
 import { KaggleApi } from './kaggle';
 import { prepareKernel } from './templates';
 import { NtfyListener } from './ntfy';
+import { nextProbeDecision, probeEndpoint } from './endpointProbe';
 import { randomApiKey, randomTopicId } from './random';
 import { startQueueMonitoring, stopQueueMonitoring } from './queueMonitor';
 
@@ -48,6 +49,7 @@ export class InstanceManager {
   // monitor (survives the app going to background; the WebView JS loop does not)
   private nativeTopics: Map<string, string> = new Map();
   private endpoints: Map<string, LiveEndpoint> = new Map();
+  private probeMisses: Map<string, number> = new Map();
   private pollInterval: any = null;
   private onUpdateCb: InstanceUpdateCallback;
 
@@ -245,9 +247,13 @@ export class InstanceManager {
         status: 'READY',
         tokensPerSec: ev.decode_tok_s ? String(ev.decode_tok_s) : session.endpoint?.tokensPerSec,
         uptimeMinutes: uptime,
+        readySince: session.endpoint?.baseUrl === cleanBaseUrl && session.endpoint.readySince
+          ? session.endpoint.readySince
+          : Date.now(),
       };
       if (ev.api_key) session.apiKey = ev.api_key;
       session.endpoint = ep;
+      this.probeMisses.delete(session.account);
       this.endpoints.set(session.account, ep);
       if (session.status !== 'RUNNING' && session.status !== 'WINNER') {
         session.status = 'RUNNING';
@@ -371,7 +377,33 @@ export class InstanceManager {
         }
       } catch {}
     }
+    await this.probeLiveEndpoints();
     this.notify();
+  }
+
+  /**
+   * Haz4rdovisk-style health probe: after the endpoint has been mounted for
+   * 45s, three missed GET /v1/models calls mark it OFFLINE (Sin conexión).
+   * A later success mounts it READY again without relaunching the kernel.
+   */
+  private async probeLiveEndpoints() {
+    for (const session of this.sessions.values()) {
+      const ep = session.endpoint;
+      if (session.done || !ep?.baseUrl?.startsWith('http') || !ep.apiKey) continue;
+      if (ep.status !== 'READY' && ep.status !== 'OFFLINE') continue;
+      if (ep.status === 'READY' && ep.readySince && Date.now() - ep.readySince < 45000) continue;
+      const ok = await probeEndpoint(ep.baseUrl, ep.apiKey);
+      const wasReady = ep.status === 'READY';
+      const decision = nextProbeDecision(ep.status, this.probeMisses.get(session.account) || 0, ok);
+      this.probeMisses.set(session.account, decision.misses);
+      ep.status = decision.status;
+      if (decision.listed) {
+        if (ok && !wasReady) ep.readySince = Date.now();
+        this.endpoints.set(session.account, ep);
+      } else {
+        this.endpoints.delete(session.account);
+      }
+    }
   }
 
   public setCustomEndpoint(accountId: string, customUrl: string) {
@@ -384,6 +416,7 @@ export class InstanceManager {
       baseUrl: customUrl.trim(),
       apiKey: session.apiKey || 'sk-custom',
       status: 'READY',
+      readySince: Date.now(),
     };
     session.endpoint = ep;
     session.status = 'RUNNING';

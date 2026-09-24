@@ -94,6 +94,8 @@ export interface LiveEndpoint {
   tokensPerSec?: string;
   keepaliveMinutes?: number;
   expireTime?: number;
+  /** Epoch ms when this URL was first mounted. Probes wait before marking it offline. */
+  readySince?: number;
 }
 
 export interface ChatMessage {

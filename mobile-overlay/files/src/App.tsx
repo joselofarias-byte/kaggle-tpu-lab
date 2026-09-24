@@ -208,6 +208,9 @@ export const App: React.FC = () => {
     if (active.some((s) => s.status === 'QUEUED') && !active.some((s) => s.status === 'RUNNING' || s.status === 'WINNER')) {
       return { text: 'En cola', cls: 'running' };
     }
+    if (active.some((s) => s.endpoint?.status === 'OFFLINE')) {
+      return { text: 'Sin conexión', cls: 'offline' };
+    }
     if (active.length > 0) {
       return { text: 'Iniciando', cls: 'running' };
     }

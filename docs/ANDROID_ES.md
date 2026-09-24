@@ -78,6 +78,19 @@ La app debe mostrarlo como un error recuperable y no como un fallo de Qwen/vLLM.
 
 Si la cuenta todavía no está habilitada para TPU, el usuario debe completar la verificación exigida por Kaggle. Si ya está habilitada, conviene detener y volver a lanzar.
 
+## Sonda de salud
+
+Un evento `ready` no demuestra que el túnel siga respondiendo. La app y `launch.py status` consultan `GET {endpoint}/v1/models` con el bearer de la sesión. La clave no se escribe en el error.
+
+- Mientras la sonda responde 200, el estado global sigue en **TPU lista**.
+- Tras montar el endpoint se esperan 45 s antes de contar fallos, para no marcar **Sin conexión** durante el arranque del túnel.
+- Tres fallos seguidos pasan ese endpoint a `OFFLINE` y la cabecera muestra **Sin conexión** aunque el kernel de Kaggle siga en `RUNNING`.
+- Una sonda exitosa posterior vuelve a **TPU lista** sin relanzar el kernel.
+
+## API key en ntfy
+
+`api_key` viaja solo en el evento `ready`, porque la adopción de una sesión en cola que la app no creó lo necesita. El resto de las fases lo omiten. Los logs de pip y de vLLM lo redactan. El banner `READY` de la celda del notebook sigue mostrándolo para quien está mirando esa salida.
+
 ## Secretos
 
 - No mostrar el token personal de Kaggle en logs.
