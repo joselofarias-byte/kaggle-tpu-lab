@@ -121,3 +121,85 @@ Kaggle dual T4, as this repo already treats it: two 16 GB Tesla T4s (32 GB combi
 ## Recommended next step
 
 On a real Kaggle GPU T4 x2 session, run only `python launch.py serve --accelerator gpu` (the Qwen profile). Confirm the on-disk SHA-256, a short chat, and the ntfy envelope. Do not flip any candidate to `launchable` in that same change. Leave PR #4 alone. TPU-generic profiles are a later wave, after this GPU engine has one successful Qwen run.
+
+Mythos (`qwen38-mythos-27b-q4km`) is the first external profile to try after that Qwen run, still at 8192 context, still only if the on-disk hash matches. It is not the default.
+
+## Candidate #1 — Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic
+
+First serious external target for the generic GPU profile path. Same ~27B Q4 class as the Unsloth baseline, with a different chat template and a community GGUF. It is how we check that a new JSON shows up in `models` / `model-info` and is refused by `serve` without a Python branch. It is not the default. `launchable` stays false. No weight was downloaded. Re-checked 2026-09-25: both pins below were still the Hugging Face tips.
+
+### Why it is interesting
+
+The author repo is an agent-oriented Qwen3.8-27B (Mythos template, tool XML, reasoning) on the OBLITERATUS chain. The GGUF we would actually run is a third-party quant of that repo, same architecture id (`qwen35`) as the Blackfrost note and the same rough file size as the served UD-Q4. Tags and `alignment_style` are metadata. They do not change argv, downloads, or isolation.
+
+### Exact sources and pins
+
+| Role | Repo | Revision |
+|---|---|---|
+| GGUF we pin | `mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF` | `01a19fb59c4130c1ae51b614eccc50dd62de4b02` |
+| Weight parent | `medismera/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic` | `528121d7b0b85885a658dfe67e3643b8a4f9337e` |
+| OBLITERATUS parent | `OBLITERATUS/Qwen3.8-27B-OBLITERATED` | not separately pinned |
+| Base | `Qwen/Qwen3.8-27B` | not separately pinned |
+| imatrix sibling, not first | `mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-i1-GGUF` | `eee7c1a5b34280252b44b1b16996d8edd2f76149` |
+
+Both GGUF and medismera cards declare `apache-2.0`. Author `config.json`: `Qwen3_5ForConditionalGeneration`, `model_type` `qwen3_5`, 64 layers, `full_attention_interval` 4, `max_position_embeddings` 262144, MTP keys present, BF16 safetensors total `27781427952`. GGUF metadata: architecture `qwen35`, context 262144. No `SHA256SUMS` file on the GGUF repo. Do not use a mutable `latest` URL. Do not use the author's own tree for GGUF: the card says that repo standardizes on safetensors to avoid GGUF kernel bugs.
+
+Profiles: `qwen38-mythos-27b-q4ks`, `qwen38-mythos-27b-q4km`, `qwen38-mythos-27b-q5ks`. Spanish display names `Qwen3.8 27B Mythos Agentic — Q4_K_S`, `— Q4_K_M`, `— Q5_K_S`. `trust_remote_code` false. `experimental` true. `alignment_style` `obliterated`. `artifact_hash_status` `UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH`. Tags: `uncensored`, `agentic`, `tool-calling`, `obliterated`. Launch context **8192** (baseline Qwen GPU stays 32768). Architecture context 262144. Host `127.0.0.1`, layer split `1,1`, `n_gpu_layers` all, `mtp_tokens` 0, chat template and tokenizer `embedded-in-gguf`.
+
+### GGUF options
+
+| Profile | File | Bytes | LFS oid used as sha256 |
+|---|---|---:|---|
+| `qwen38-mythos-27b-q4ks` | `Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_S.gguf` | 15825300672 | `0f146e0c6b1ab09f48f3f9cca8a423362a8573d1cd747eaaccc22c7f6dd07f50` |
+| `qwen38-mythos-27b-q4km` | `Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf` | 16810716352 | `3cc24a3e431930401b446d9abb52d4e1fa4add4ec19df19b5b5b0c1dbc22da4b` |
+| `qwen38-mythos-27b-q5ks` | `Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q5_K_S.gguf` | 18971684032 | `8145d2b7cce80ef444d2a3ca9b463043fe04cc9daddef6d0e12383e5fe506049` |
+
+Oids matched `paths-info` on the pinned revision. They are not a hash of a downloaded blob.
+
+### Estimated hardware fit
+
+Dual T4 is still 2×16 GB, 32 GB combined, no NVLink, ≥20 GiB scratch. Unmeasured.
+
+| Quant | File | Rough VRAM (weights + overhead) | Dual T4 | Start context | Practical ceiling before KV pain |
+|---|---|---|---|---|---|
+| Q4_K_S | ~14.7 GiB | ~18–24 GB | plausible with layer split | 8192 | maybe 16–32k, untested |
+| Q4_K_M | ~15.7 GiB | ~19–26 GB | plausible, same class as baseline UD-Q4 (16464440224 bytes) | 8192 | maybe 16–32k, untested |
+| Q5_K_S | ~17.7 GiB | ~22–28 GB | marginal; may need CPU offload | 8192 | likely 8–16k |
+
+128k/256k is not a dual-T4 plan. Order for a practical eval, not a quality ranking: Q4_K_S, then Q4_K_M, then Q5_K_S. Recommended first GGUF: **`qwen38-mythos-27b-q4km`**.
+
+### Tool calling
+
+Unverified on llama.cpp. Author SGLang snippet uses `--tool-call-parser qwen3_coder` and `--reasoning-parser qwen3`, and sets `trust_remote_code`. Their Transformers snippet uses `AutoModelForImageTextToText` with `trust_remote_code=True`. Our profiles do not. A vLLM hermes parser was not confirmed on the card text that was read. Generation defaults in `generation_config.json` (temperature 0.65, top_k 20, top_p 0.95, repetition_penalty 1.15, presence_penalty 0.3, max_new_tokens 16384) are not applied by the GPU engine.
+
+Do not call it agentic until this battery passes: one function call, several tools, malformed arguments, continuation after a tool result, a multi-step loop, repeated invocation, long conversation plus tools.
+
+### Context strategy
+
+Profile cap is 8192 so Stage A is the launch default. Baseline `qwen38-27b-gpu` is unchanged at 32768. Raise Mythos only after A, then B (16384), then C (32768). 64k/128k only after C.
+
+### Risks and unverified claims
+
+- Author "0.00% refusal" / 30/30 compliance is their own 30-prompt battery. Not reproduced. Not a guarantee.
+- Hybrid `qwen35` plus MTP plus an embedded Mythos template may not load on pinned ai-dock llama.cpp v0.4.0.
+- Author moved off GGUF citing kernel bugs. This file is someone else's quant of their safetensors.
+- Checksum is an LFS oid until the first download is hashed locally.
+- i1 imatrix exists and is not the first file.
+- Do not confuse with non-Mythos OBLITERATUS GGUFs.
+
+### Physical test plan
+
+Only after the stock Qwen GPU profile has one clean dual-T4 run.
+
+- **Stage A:** `qwen38-mythos-27b-q4km`, 8192 context, short generation, both T4s used, no bad CPU fallback, localhost `/v1/models`.
+- **Stage B:** 16384, VRAM, tok/s, stability.
+- **Stage C:** 32768, VRAM, tok/s, long-context stability.
+- Then the tool battery. Q5_K_S only if A was comfortable. Q4_K_S is the smaller fallback, not the first file.
+
+### Reject criteria
+
+Refuse to mark it supported if the pinned llama.cpp cannot load the GGUF, the on-disk SHA-256 mismatches, both T4s are not used without a bad CPU fallback, the tool battery fails, the chat template breaks OpenAI-compatible clients, the author's GGUF kernel bugs show up, or Stage A OOMs at 8192.
+
+### What a dual T4 still has to prove
+
+Load, hash, split, 8192 generation, template behavior, and tools. None of that is known from metadata.

@@ -47,6 +47,24 @@ Un GGUF puede traer además una plantilla de chat que agrega instrucciones propi
 
 Si una ficha dice "90 % menos rechazos", ese número es del publicador, en su conjunto de prueba. Este repositorio no lo reprodujo.
 
+## Candidato 1, en español y todavía no servible
+
+Tres perfiles del mismo GGUF de comunidad. No cambian el default. `serve` se niega.
+
+| Id | Nombre |
+|---|---|
+| `qwen38-mythos-27b-q4ks` | Qwen3.8 27B Mythos Agentic — Q4_K_S |
+| `qwen38-mythos-27b-q4km` | Qwen3.8 27B Mythos Agentic — Q4_K_M (primera prueba, cuando exista sesión) |
+| `qwen38-mythos-27b-q5ks` | Qwen3.8 27B Mythos Agentic — Q5_K_S (marginal) |
+
+```bash
+python launch.py models
+python launch.py model-info qwen38-mythos-27b-q4km
+python launch.py serve --model qwen38-mythos-27b-q4km --accelerator gpu
+```
+
+El último comando debe fallar mientras el perfil diga que no es servible. Detalle en [CANDIDATE1_MYTHOS.md](CANDIDATE1_MYTHOS.md).
+
 ## Qué sí está servible hoy
 
 | Pedido | Qué pasa |

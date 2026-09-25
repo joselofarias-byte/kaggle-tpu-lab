@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "id": "qwen38-mythos-27b-q4ks",
+  "display_name": "Qwen3.8 27B Mythos Agentic — Q4_K_S",
+  "backend": "llama.cpp",
+  "accelerator": "gpu",
+  "source": {
+    "repository": "mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF",
+    "revision": "01a19fb59c4130c1ae51b614eccc50dd62de4b02",
+    "base_model": "Qwen/Qwen3.8-27B",
+    "weight_parent": "medismera/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic",
+    "weight_parent_revision": "528121d7b0b85885a658dfe67e3643b8a4f9337e",
+    "obliteratus_parent": "OBLITERATUS/Qwen3.8-27B-OBLITERATED"
+  },
+  "model_file": "Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_S.gguf",
+  "sha256": "0f146e0c6b1ab09f48f3f9cca8a423362a8573d1cd747eaaccc22c7f6dd07f50",
+  "model_size_bytes": 15825300672,
+  "artifact_hash_status": "UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH",
+  "architecture": "qwen35",
+  "quantization": "Q4_K_S",
+  "context_size": 8192,
+  "architecture_context": 262144,
+  "resources": {
+    "min_vram_gb": 18,
+    "recommended_vram_gb": 32,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  },
+  "gpu": {"count": 2, "type": "Tesla T4", "tensor_parallel": null, "split_mode": "layer", "tensor_split": "1,1"},
+  "tpu_compatible": false,
+  "launch_args": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "n_gpu_layers": "all",
+    "split_mode": "layer",
+    "tensor_split": "1,1",
+    "parallel": 2,
+    "mtp_tokens": 0
+  },
+  "served_model_name": "qwen3.8-mythos-q4ks",
+  "chat_template": "embedded-in-gguf",
+  "tokenizer_source": "embedded-in-gguf",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "alignment_style": "obliterated",
+  "notes": [
+    "Candidato 1, cuantización más chica. No es el modelo por defecto y no es servible. La primera prueba física propuesta es qwen38-mythos-27b-q4km.",
+    "GGUF de mradermacher sobre medismera/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic @ 528121d7b0b85885a658dfe67e3643b8a4f9337e. Cadena: OBLITERATUS/Qwen3.8-27B-OBLITERATED y Qwen/Qwen3.8-27B.",
+    "Revisión GGUF 01a19fb59c4130c1ae51b614eccc50dd62de4b02. El 2026-09-25 seguía siendo la punta. No se usa una URL latest.",
+    "SHA-256 es el oid LFS de paths-info, no un hash del archivo en disco. UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH. Ese repo no publica SHA256SUMS.",
+    "Metadato GGUF: architecture qwen35, context_length 262144. Este perfil lanza a 8192."
+  ],
+  "warnings": [
+    "El autor estandariza safetensors en su repo para evitar bugs de kernel GGUF. Este archivo es de un tercero. llama.cpp ai-dock v0.4.0 no se probó con este híbrido.",
+    "0% de rechazos es la batería del autor (30/30). No está reproducido.",
+    "Tool calling no está verificado aquí. La ficha SGLang usa qwen3_coder y reasoning-parser qwen3, con trust_remote_code. Este perfil lo deja en false.",
+    "Q5_K_S del mismo repo es marginal en dos T4. Q4_K_S cabe mejor en papel y no es la prueba recomendada.",
+    "alignment_style y las etiquetas no cambian el comando, la descarga ni el aislamiento."
+  ],
+  "experimental": true,
+  "launchable": false,
+  "trust_remote_code": false,
+  "tags": ["uncensored", "agentic", "tool-calling", "obliterated"]
+}

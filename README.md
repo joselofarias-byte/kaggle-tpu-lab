@@ -49,6 +49,8 @@ python launch.py serve            # Qwen3.8-27B on the TPU, same default as befo
 python launch.py models           # every profile, including ones not yet tested
 python launch.py model-info qwen38-27b-gpu
 python launch.py serve --accelerator gpu   # Qwen Q4 on two T4s, via a model profile
+python launch.py model-info qwen38-mythos-27b-q4km
+python launch.py serve --model qwen38-mythos-27b-q4km --accelerator gpu   # refused; not the default
 ```
 
 `launch.py` pushes the kernel with the Kaggle CLI and follows its progress; `status`

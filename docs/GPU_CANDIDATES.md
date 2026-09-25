@@ -1,12 +1,66 @@
 # Candidatos GGUF para dos T4 (sin probar)
 
-Estos cuatro repos existen en Hugging Face y caben, en papel, en la misma clase de hardware que la ruta GPU actual (dos Tesla T4, llama.cpp, archivo Q4 de unos 9–17 GB). **Ninguno se descargó ni se cargó.** El lanzador los lista y se niega a servirlos (`launchable: false`). Los SHA-256 de abajo son el oid LFS que devolvió la API `paths-info` el 2026-09-24 para la revisión indicada. No son un hash recalculado en esta máquina.
+El objetivo externo principal es el candidato 1 (Mythos), más abajo. Sigue sin ser el default y sin ser servible. Los cuatro repos que ya estaban documentados se conservan después de esa sección.
+
+**Ninguno se descargó ni se cargó.** El lanzador los lista y se niega a servirlos (`launchable: false`). Los SHA-256 son oids LFS de `paths-info`, no un hash recalculado en esta máquina. Mythos se releyó el 2026-09-25; el resto, el 2026-09-24.
 
 El binario fijado sigue siendo el de la ruta Qwen: `ai-dock/llama.cpp-cuda` v0.4.0, SHA-256 `7a229ac0…`. Que ese binario abra Qwen3.8-27B UD-Q4 no demuestra que abra estos otros GGUF (plantilla, cabeza MTP, arquitectura `qwen3` frente a `qwen35`).
 
 Hardware que este repo ya asume, sin una sesión nueva: dos Tesla T4 (16 GB cada una, 32 GB sumados, sin NVLink) y al menos 20 GiB libres en el scratch antes de bajar el archivo. Fuentes públicas describen la sesión T4 x2 de Kaggle con unos 32 GB de RAM de host. No se volvió a medir aquí.
 
 "Cabe en VRAM" significa que el archivo es claramente menor que 32 GB y, partido por capas, menor que ~16 GB por GPU, dejando sitio para KV y buffers. No es una medición.
+
+La línea de base sigue siendo `qwen38-27b-gpu`: Unsloth `Qwen3.8-27B-UD-Q4_K_M.gguf`, 16464440224 bytes, contexto de lanzamiento 32768, ya marcado servible en el catálogo y todavía sin una sesión nueva de esta rama. Mythos no lo reemplaza.
+
+## Candidato 1 — Qwen3.8 Mythos Agentic (objetivo externo)
+
+| | |
+|---|---|
+| Perfiles | `qwen38-mythos-27b-q4ks`, `qwen38-mythos-27b-q4km` (primera prueba), `qwen38-mythos-27b-q5ks` |
+| Nombres | Qwen3.8 27B Mythos Agentic — Q4_K_S / Q4_K_M / Q5_K_S |
+| Repo GGUF | `mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF` |
+| Revisión | `01a19fb59c4130c1ae51b614eccc50dd62de4b02` (punta el 2026-09-25; no hay URL `latest`) |
+| Padre | `medismera/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic` @ `528121d7b0b85885a658dfe67e3643b8a4f9337e` |
+| Cadena | `OBLITERATUS/Qwen3.8-27B-OBLITERATED` y `Qwen/Qwen3.8-27B` |
+| Licencia en las fichas | `apache-2.0` |
+| Arquitectura | `qwen35` en el GGUF; `qwen3_5` / `Qwen3_5ForConditionalGeneration` en el config del autor |
+| Contexto | 262144 de arquitectura. **Lanzamiento 8192** en los tres perfiles. El Qwen de serie sigue en 32768 |
+| Plantilla | embebida en el GGUF. No se copió el Jinja. `trust_remote_code` false |
+| i1 | `…-Mythos-Class-Agentic-i1-GGUF` @ `eee7c1a5b34280252b44b1b16996d8edd2f76149`. Documentado, sin perfil y sin ser la primera prueba |
+| Checklist | [CANDIDATE1_MYTHOS.md](CANDIDATE1_MYTHOS.md) |
+
+| Perfil | Archivo | Bytes | oid LFS (no rehasheado) | Dos T4, solo por tamaño |
+|---|---|---:|---|---|
+| `qwen38-mythos-27b-q4ks` | `Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_S.gguf` | 15825300672 | `0f146e0c6b1ab09f48f3f9cca8a423362a8573d1cd747eaaccc22c7f6dd07f50` | Plausible (~14.7 GiB). Orden práctico de ensayo, no de calidad |
+| `qwen38-mythos-27b-q4km` | `….Q4_K_M.gguf` | 16810716352 | `3cc24a3e431930401b446d9abb52d4e1fa4add4ec19df19b5b5b0c1dbc22da4b` | Plausible, misma clase que el UD-Q4 de Unsloth (~15.7 GiB). **Primera prueba** |
+| `qwen38-mythos-27b-q5ks` | `….Q5_K_S.gguf` | 18971684032 | `8145d2b7cce80ef444d2a3ca9b463043fe04cc9daddef6d0e12383e5fe506049` | Marginal (~17.7 GiB). Puede pedir offload |
+
+Los tres dicen `UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH`. El repo GGUF no trae `SHA256SUMS`. Split de capas `1,1`, `n_gpu_layers` all, `mtp_tokens` 0, host `127.0.0.1`. Estimación burda de VRAM total (pesos + overhead, sin medir): Q4_K_S ~18–24 GB, Q4_K_M ~19–26 GB, Q5_K_S ~22–28 GB. KV de un híbrido no se midió. 128k y 256k no entran en el plan.
+
+### Etapas, solo después de que el Qwen GPU de serie responda
+
+- **A.** Contexto 8192. Generación corta. Las dos T4 en uso, sin caída rara a CPU. `GET /v1/models` en localhost.
+- **B.** 16384. Estabilidad, VRAM por GPU, tok/s.
+- **C.** 32768. Igual, más estabilidad de contexto largo.
+- Recién ahí se habla de 64k o 128k. El perfil no sube el tope solo.
+
+### Batería de herramientas (no afirmar "agentic" antes)
+
+1. Una función simple.
+2. Varias herramientas.
+3. Argumentos mal formados.
+4. Continuar después del resultado.
+5. Un bucle de varios pasos.
+6. La misma herramienta repetida.
+7. Conversación larga con herramientas.
+
+La ficha del autor, en SGLang, pasa `--tool-call-parser qwen3_coder` y `--reasoning-parser qwen3`, y enciende `trust_remote_code`. Eso no se copia. El 0 % de rechazos es su batería de 30 prompts.
+
+### Cuándo se rechaza como perfil soportado
+
+Si el binario fijado no carga el GGUF, si el SHA-256 del disco no coincide con el oid, si no usa las dos T4 sin un offload malo, si falla la batería de herramientas, si la plantilla rompe clientes OpenAI, si reaparecen los bugs de kernel GGUF que el autor quiso evitar, o si hay OOM en la etapa A a 8192.
+
+`alignment_style: obliterated` y las etiquetas `uncensored`, `agentic`, `tool-calling`, `obliterated` no cambian el argv.
 
 ## 1. Blackfrost Qwen3.8-27B abliterated
 

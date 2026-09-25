@@ -233,6 +233,106 @@ class SelectionTest(unittest.TestCase):
             launch.prepare_serve_selection(args)
 
 
+MYTHOS_IDS = (
+    "qwen38-mythos-27b-q4ks",
+    "qwen38-mythos-27b-q4km",
+    "qwen38-mythos-27b-q5ks",
+)
+MYTHOS_FILES = {
+    "qwen38-mythos-27b-q4ks": (
+        "Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_S.gguf",
+        15825300672,
+        "0f146e0c6b1ab09f48f3f9cca8a423362a8573d1cd747eaaccc22c7f6dd07f50",
+    ),
+    "qwen38-mythos-27b-q4km": (
+        "Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf",
+        16810716352,
+        "3cc24a3e431930401b446d9abb52d4e1fa4add4ec19df19b5b5b0c1dbc22da4b",
+    ),
+    "qwen38-mythos-27b-q5ks": (
+        "Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q5_K_S.gguf",
+        18971684032,
+        "8145d2b7cce80ef444d2a3ca9b463043fe04cc9daddef6d0e12383e5fe506049",
+    ),
+}
+
+
+class MythosCandidateTest(unittest.TestCase):
+    def test_profiles_validate_and_stay_unservable(self):
+        catalog = load_catalog()
+        self.assertGreaterEqual(len(catalog), 10)
+        for profile_id in MYTHOS_IDS:
+            profile = catalog[profile_id]
+            self.assertEqual(validate_profile(profile)["id"], profile_id)
+            self.assertFalse(profile["launchable"])
+            self.assertTrue(profile["experimental"])
+            self.assertFalse(profile["trust_remote_code"])
+            self.assertEqual(profile["context_size"], 8192)
+            self.assertEqual(profile["architecture_context"], 262144)
+            self.assertEqual(profile["architecture"], "qwen35")
+            self.assertEqual(profile["alignment_style"], "obliterated")
+            self.assertEqual(profile["artifact_hash_status"], "UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH")
+            self.assertIn("UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH", "\n".join(profile["notes"]))
+            self.assertEqual(profile["source"]["repository"],
+                             "mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF")
+            self.assertEqual(profile["source"]["revision"], "01a19fb59c4130c1ae51b614eccc50dd62de4b02")
+            self.assertEqual(profile["launch_args"]["host"], "127.0.0.1")
+            self.assertEqual(profile["launch_args"]["mtp_tokens"], 0)
+            filename, size, digest = MYTHOS_FILES[profile_id]
+            self.assertEqual(profile["model_file"], filename)
+            self.assertEqual(profile["model_size_bytes"], size)
+            self.assertEqual(profile["sha256"], digest)
+            self.assertIn("Mythos Agentic", profile["display_name"])
+            with self.assertRaises(ProfileError):
+                assert_servable(profile)
+        self.assertEqual(clamp_launch_context(catalog["qwen38-27b-gpu"], 262144), 32768)
+        self.assertEqual(clamp_launch_context(catalog["qwen38-mythos-27b-q4km"], 262144), 8192)
+
+    def test_listed_info_and_serve_refuses_without_changing_default(self):
+        buf = io.StringIO()
+        with mock.patch("sys.argv", ["launch.py", "models"]), mock.patch("sys.stdout", buf):
+            launch.main()
+        listed = buf.getvalue()
+        for profile_id in MYTHOS_IDS:
+            self.assertIn(profile_id, listed)
+        self.assertIn("candidato", listed)
+        buf = io.StringIO()
+        with mock.patch("sys.argv", ["launch.py", "model-info", "qwen38-mythos-27b-q4km"]), mock.patch("sys.stdout", buf):
+            launch.main()
+        text = buf.getvalue()
+        self.assertIn("Qwen3.8 27B Mythos Agentic — Q4_K_M", text)
+        self.assertIn("3cc24a3e431930401b446d9abb52d4e1fa4add4ec19df19b5b5b0c1dbc22da4b", text)
+        self.assertIn("UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH", text)
+        self.assertIn("servible: False", text)
+        args = mock.Mock(model="qwen38-mythos-27b-q4km", accelerator="gpu")
+        with self.assertRaises(SystemExit):
+            launch.prepare_serve_selection(args)
+        help_buf = io.StringIO()
+        with mock.patch("sys.argv", ["launch.py", "serve", "--help"]), mock.patch("sys.stdout", help_buf):
+            with self.assertRaises(SystemExit) as caught:
+                launch.main()
+        self.assertEqual(caught.exception.code, 0)
+        self.assertIn("default: qwen38-27b", help_buf.getvalue())
+        self.assertNotIn("mythos", help_buf.getvalue().lower())
+
+    def test_tags_and_alignment_style_do_not_change_argv(self):
+        profile = load_catalog()["qwen38-mythos-27b-q4km"]
+        bare = dict(profile)
+        bare["tags"] = []
+        bare.pop("alignment_style")
+        bare.pop("artifact_hash_status")
+        overrides = {"ctx_size": 8192, "api_key": "sk-test"}
+        left = server_command("/bin/llama-server", serve_config(profile, overrides), "/m.gguf")
+        right = server_command("/bin/llama-server", serve_config(bare, overrides), "/m.gguf")
+        self.assertEqual(left, right)
+        blob = " ".join(left)
+        self.assertNotIn("obliterated", blob)
+        self.assertNotIn("uncensored", blob)
+        self.assertNotIn("agentic", blob)
+        self.assertEqual(left[left.index("--host") + 1], "127.0.0.1")
+        self.assertEqual(left[left.index("--ctx-size") + 1], "8192")
+
+
 class QwenGpuCompatibilityTest(unittest.TestCase):
     def test_profile_matches_wave1_script_pins(self):
         defaults = _script_defaults()

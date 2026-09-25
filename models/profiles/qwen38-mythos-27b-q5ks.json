@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "id": "qwen38-mythos-27b-q5ks",
+  "display_name": "Qwen3.8 27B Mythos Agentic — Q5_K_S",
+  "backend": "llama.cpp",
+  "accelerator": "gpu",
+  "source": {
+    "repository": "mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF",
+    "revision": "01a19fb59c4130c1ae51b614eccc50dd62de4b02",
+    "base_model": "Qwen/Qwen3.8-27B",
+    "weight_parent": "medismera/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic",
+    "weight_parent_revision": "528121d7b0b85885a658dfe67e3643b8a4f9337e",
+    "obliteratus_parent": "OBLITERATUS/Qwen3.8-27B-OBLITERATED"
+  },
+  "model_file": "Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q5_K_S.gguf",
+  "sha256": "8145d2b7cce80ef444d2a3ca9b463043fe04cc9daddef6d0e12383e5fe506049",
+  "model_size_bytes": 18971684032,
+  "artifact_hash_status": "UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH",
+  "architecture": "qwen35",
+  "quantization": "Q5_K_S",
+  "context_size": 8192,
+  "architecture_context": 262144,
+  "resources": {
+    "min_vram_gb": 24,
+    "recommended_vram_gb": 32,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  },
+  "gpu": {"count": 2, "type": "Tesla T4", "tensor_parallel": null, "split_mode": "layer", "tensor_split": "1,1"},
+  "tpu_compatible": false,
+  "launch_args": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "n_gpu_layers": "all",
+    "split_mode": "layer",
+    "tensor_split": "1,1",
+    "parallel": 2,
+    "mtp_tokens": 0
+  },
+  "served_model_name": "qwen3.8-mythos-q5ks",
+  "chat_template": "embedded-in-gguf",
+  "tokenizer_source": "embedded-in-gguf",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "alignment_style": "obliterated",
+  "notes": [
+    "Candidato 1, cuantización marginal. No es servible. No es la primera prueba: esa es qwen38-mythos-27b-q4km.",
+    "Mismo repo y revisión que los otros perfiles Mythos: mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF @ 01a19fb59c4130c1ae51b614eccc50dd62de4b02.",
+    "SHA-256 es el oid LFS. UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH. No hay SHA256SUMS en ese repo.",
+    "18971684032 bytes (~17.7 GiB). El tope de lanzamiento sigue en 8192."
+  ],
+  "warnings": [
+    "Marginal en dos T4 de 16 GB: el archivo más el KV y los buffers puede pedir offload a CPU. Si la etapa A del Q4_K_M no entra holgada, no pasar a este archivo.",
+    "Mismos riesgos de híbrido llama.cpp, de plantilla y de tool calling que Q4_K_M. 0% de rechazos sigue siendo un dicho del autor.",
+    "No usar una URL latest. alignment_style no cambia el comando."
+  ],
+  "experimental": true,
+  "launchable": false,
+  "trust_remote_code": false,
+  "tags": ["uncensored", "agentic", "tool-calling", "obliterated"]
+}

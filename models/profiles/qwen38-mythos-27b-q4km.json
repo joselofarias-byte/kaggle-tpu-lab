@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "id": "qwen38-mythos-27b-q4km",
+  "display_name": "Qwen3.8 27B Mythos Agentic — Q4_K_M",
+  "backend": "llama.cpp",
+  "accelerator": "gpu",
+  "source": {
+    "repository": "mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF",
+    "revision": "01a19fb59c4130c1ae51b614eccc50dd62de4b02",
+    "base_model": "Qwen/Qwen3.8-27B",
+    "weight_parent": "medismera/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic",
+    "weight_parent_revision": "528121d7b0b85885a658dfe67e3643b8a4f9337e",
+    "obliteratus_parent": "OBLITERATUS/Qwen3.8-27B-OBLITERATED"
+  },
+  "model_file": "Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf",
+  "sha256": "3cc24a3e431930401b446d9abb52d4e1fa4add4ec19df19b5b5b0c1dbc22da4b",
+  "model_size_bytes": 16810716352,
+  "artifact_hash_status": "UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH",
+  "architecture": "qwen35",
+  "quantization": "Q4_K_M",
+  "context_size": 8192,
+  "architecture_context": 262144,
+  "resources": {
+    "min_vram_gb": 20,
+    "recommended_vram_gb": 32,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  },
+  "gpu": {"count": 2, "type": "Tesla T4", "tensor_parallel": null, "split_mode": "layer", "tensor_split": "1,1"},
+  "tpu_compatible": false,
+  "launch_args": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "n_gpu_layers": "all",
+    "split_mode": "layer",
+    "tensor_split": "1,1",
+    "parallel": 2,
+    "mtp_tokens": 0
+  },
+  "served_model_name": "qwen3.8-mythos-q4km",
+  "chat_template": "embedded-in-gguf",
+  "tokenizer_source": "embedded-in-gguf",
+  "health_check": {"path": "/v1/models", "expect_status": 200},
+  "alignment_style": "obliterated",
+  "notes": [
+    "Candidato 1 y primera prueba física propuesta, después de que el Qwen GPU de serie pase en dos T4. No es el default y no es servible.",
+    "GGUF de mradermacher sobre medismera/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic @ 528121d7b0b85885a658dfe67e3643b8a4f9337e. Cadena: OBLITERATUS/Qwen3.8-27B-OBLITERATED y Qwen/Qwen3.8-27B.",
+    "Revisión GGUF 01a19fb59c4130c1ae51b614eccc50dd62de4b02. El 2026-09-25 seguía siendo la punta. No se usa una URL latest.",
+    "SHA-256 es el oid LFS de paths-info, no un hash del archivo en disco. UNVERIFIED_UNTIL_FIRST_DOWNLOAD_HASH. Ese repo no publica SHA256SUMS.",
+    "16810716352 bytes, misma clase que el UD-Q4 de Unsloth (16464440224). Metadato GGUF: architecture qwen35, context_length 262144. Este perfil lanza a 8192.",
+    "Existe también mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-i1-GGUF (imatrix, punta eee7c1a5b34280252b44b1b16996d8edd2f76149 el 2026-09-25). No es el primer archivo a probar."
+  ],
+  "warnings": [
+    "El autor estandariza safetensors en su repo para evitar bugs de kernel GGUF. Este archivo es de un tercero. llama.cpp ai-dock v0.4.0 no se probó con este híbrido (atención lineal y atención plena, intervalo 4, MTP en el config).",
+    "0% de rechazos es la medición del autor: 30/30 en su batería. No está reproducido y no es una garantía.",
+    "Tool calling no está verificado en este motor. La guía SGLang del autor usa --tool-call-parser qwen3_coder y --reasoning-parser qwen3. Un parser hermes de vLLM no quedó confirmado en esa ficha.",
+    "trust_remote_code queda en false. Las guías Transformers/SGLang del autor lo encienden; un GGUF no lo necesita.",
+    "Q5_K_S (18971684032 bytes) es marginal en dos T4. No subir el contexto de 8192 hasta pasar las etapas A, B y C.",
+    "alignment_style y las etiquetas no cambian el comando, la descarga ni el aislamiento."
+  ],
+  "experimental": true,
+  "launchable": false,
+  "trust_remote_code": false,
+  "tags": ["uncensored", "agentic", "tool-calling", "obliterated"]
+}
