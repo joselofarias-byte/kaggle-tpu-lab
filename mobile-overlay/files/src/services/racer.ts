@@ -15,12 +15,14 @@ export type InstanceUpdateCallback = (
  * Pure mount decision, extracted from `InstanceManager.handleNtfyEvent` so the
  * race veto logic is unit-testable.
  *
- * - `mount`: a genuine serving signal (ready/serving/heartbeat) with a valid
- *   http(s) URL arrived and Kaggle does not report QUEUED → mount it.
- * - `veto-queued`: valid signal + URL, but Kaggle explicitly reports QUEUED →
- *   do NOT mount prematurely (and do not run the heartbeat-uptime branch).
+ * - `mount`: a session-specific serving signal (ready/serving/heartbeat)
+ *   with a valid http(s) URL arrived → mount it immediately.
  * - `skip`: no valid URL or not a serving phase → fall through to the
  *   heartbeat-uptime branch / no-op.
+ *
+ * The ntfy topic is randomly generated per launch and only recent events are
+ * consumed. Therefore a READY/heartbeat from that topic is stronger evidence
+ * than the slug-level Kaggle status endpoint, which can lag or report QUEUED.
  */
 export function decideEndpointMount(opts: {
   status: RaceSession['status'];
@@ -28,13 +30,14 @@ export function decideEndpointMount(opts: {
   sessionEndpointUrl?: string;
   eventEndpoint?: string;
   existingBaseUrl?: string;
-}): { kind: 'mount'; url: string } | { kind: 'veto-queued' } | { kind: 'skip' } {
+}): { kind: 'mount'; url: string } | { kind: 'skip' } {
   const rawUrl = (opts.sessionEndpointUrl || opts.eventEndpoint || opts.existingBaseUrl || '').trim();
   const hasValidHttp = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
   const isServingPhase = opts.phase === 'ready' || opts.phase === 'serving' || opts.phase === 'heartbeat';
   if (!hasValidHttp || !isServingPhase) return { kind: 'skip' };
-  // Kaggle status veto: if Kaggle explicitly remains QUEUED, do not mount the READY endpoint prematurely.
-  if (opts.status === 'QUEUED') return { kind: 'veto-queued' };
+  // Do not veto a session-specific READY/heartbeat because the slug-level
+  // Kaggle status still says QUEUED. That exact mismatch caused a live TPU to
+  // remain unreachable from Android while quota kept being consumed.
   // Strip trailing slashes so `https://host/` does not become `https://host//v1`.
   const trimmed = rawUrl.replace(/\/+$/, '');
   const url = trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
@@ -248,8 +251,9 @@ export class InstanceManager {
       }
     }
 
-    // Mount ready endpoint only when receiving authentic serving / ready / heartbeat while not queued
-    // Note: tunnel-url phase only records URL; never mark READY prematurely (aligning with launch.py)
+    // Mount only on a session-specific serving / ready / heartbeat event.
+    // The Kaggle slug status may lag (e.g. still QUEUED), so ntfy liveness wins.
+    // tunnel-url only records the URL and never marks READY prematurely.
     const verdict = decideEndpointMount({
       status: session.status,
       phase: ev.phase,
