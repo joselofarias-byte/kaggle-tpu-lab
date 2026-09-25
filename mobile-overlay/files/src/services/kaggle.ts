@@ -37,10 +37,23 @@ export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
   const s = String(statusRaw ?? '').trim().toUpperCase();
 
   let status: KaggleStatusResponse['status'] = 'UNKNOWN';
+  let detail: string | undefined;
+
   if (s.includes('RUNNING') || statusRaw === 1) status = 'RUNNING';
   else if (s.includes('COMPLETE') || statusRaw === 2) status = 'COMPLETE';
   else if (s.includes('ERROR') || statusRaw === 3) status = 'ERROR';
-  else if (s.includes('CANCEL') || statusRaw === 4 || statusRaw === 5) status = 'CANCELLED';
+  else if (
+    statusRaw === 4 ||
+    statusRaw === 5 ||
+    s.includes('CANCEL_REQUESTED') ||
+    s.includes('CANCEL_ACKNOWLEDGED')
+  ) {
+    // These are transition/ack states, not proof that the serving process is gone.
+    // Real-world Kaggle runs can keep serving after the slug-level endpoint reports
+    // one of them, so leave the session non-terminal and corroborate with ntfy.
+    status = 'UNKNOWN';
+    detail = `Kaggle informó ${s || statusRaw}; esperando confirmación de la sesión`;
+  } else if (s === 'CANCELLED' || s === 'CANCELED') status = 'CANCELLED';
   else if (s.includes('QUEUE') || statusRaw === 0) status = 'QUEUED';
   else if (s.includes('NEW_SCRIPT') || statusRaw === 6) status = 'QUEUED';
 
@@ -49,7 +62,7 @@ export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
     rawStatus: typeof statusRaw === 'string' || typeof statusRaw === 'number' ? statusRaw : undefined,
     failureMessage: raw.failureMessage || raw.failure_message,
     hasFailure: status === 'ERROR',
-    detail: status === 'UNKNOWN' ? 'Kaggle devolvió un estado no reconocido' : undefined,
+    detail: detail || (status === 'UNKNOWN' ? 'Kaggle devolvió un estado no reconocido' : undefined),
   };
 }
 

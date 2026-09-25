@@ -2,6 +2,55 @@ import { NtfyEvent } from './types';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
+const NTFY_TOPIC_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * One-shot lifecycle probe used when restoring/synchronizing a saved session.
+ * The topic is unique per launched TPU, so a recent ready/serving/heartbeat on
+ * that topic is stronger evidence of liveness than a stale slug-level Kaggle
+ * status response.
+ */
+export async function fetchLatestNtfyLifecycleEvent(
+  topic: string,
+  sinceSecondsAgo: number = 900
+): Promise<NtfyEvent | undefined> {
+  if (!NTFY_TOPIC_RE.test(topic)) return undefined;
+
+  const since = Math.floor(Date.now() / 1000) - Math.max(60, sinceSecondsAgo);
+  const url = `https://ntfy.sh/${topic}/json?poll=1&since=${since}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) return undefined;
+
+    const lifecycle = new Set(['ready', 'serving', 'heartbeat', 'failed', 'stopped', 'auto-shutdown']);
+    let latest: NtfyEvent | undefined;
+
+    for (const line of (await res.text()).split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const raw = JSON.parse(line);
+        if (raw.event !== 'message' || !raw.message) continue;
+        const ev: NtfyEvent = JSON.parse(raw.message);
+        if (!lifecycle.has(ev.phase)) continue;
+        ev.rawTime = raw.time;
+        if (!latest || Number(ev.rawTime || 0) >= Number(latest.rawTime || 0)) latest = ev;
+      } catch {
+        // Ignore malformed or unrelated ntfy messages.
+      }
+    }
+
+    return latest;
+  } catch {
+    clearTimeout(timeoutId);
+    return undefined;
+  }
+}
+
+
 export class NtfyListener {
   private topic: string;
   private since: number;

@@ -1,7 +1,7 @@
 import { KaggleAccount, LaunchConfig, RaceSession, LiveEndpoint, NtfyEvent, getServedModelName } from './types';
 import { KaggleApi } from './kaggle';
 import { prepareKernel } from './templates';
-import { NtfyListener } from './ntfy';
+import { NtfyListener, fetchLatestNtfyLifecycleEvent } from './ntfy';
 import { randomApiKey, randomTopicId } from './random';
 import { startQueueMonitoring, stopQueueMonitoring } from './queueMonitor';
 
@@ -39,6 +39,32 @@ export function decideEndpointMount(opts: {
   const trimmed = rawUrl.replace(/\/+$/, '');
   const url = trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
   return { kind: 'mount', url };
+}
+
+export function hasRecentServingEvidence(
+  session: Pick<RaceSession, 'lastEvent'>,
+  nowMs: number = Date.now(),
+  maxAgeSeconds: number = 900
+): boolean {
+  const ev = session.lastEvent;
+  if (!ev || !['ready', 'serving', 'heartbeat'].includes(ev.phase)) return false;
+  const rawTime = Number(ev.rawTime || 0);
+  if (!Number.isFinite(rawTime) || rawTime <= 0) return false;
+  const ageSeconds = Math.max(0, Math.floor(nowMs / 1000) - rawTime);
+  return ageSeconds <= maxAgeSeconds;
+}
+
+function recoveryEventText(ev: NtfyEvent): string {
+  if (ev.phase === 'heartbeat') {
+    return `TPU activa confirmada por heartbeat${ev.up_min ? ` (${ev.up_min} min)` : ''}.`;
+  }
+  if (ev.phase === 'ready' || ev.phase === 'serving') {
+    return 'TPU activa confirmada por el canal de la sesión.';
+  }
+  if (ev.phase === 'auto-shutdown') return 'La sesión informó apagado automático.';
+  if (ev.phase === 'failed') return ev.message_es || ev.cause || 'La sesión informó un fallo.';
+  if (ev.phase === 'stopped') return ev.message_es || ev.cause || 'La sesión informó que se detuvo.';
+  return `Estado de sesión confirmado por ntfy: ${ev.phase}`;
 }
 
 export class InstanceManager {
@@ -357,6 +383,22 @@ export class InstanceManager {
             });
           }
         } else if (st.status === 'ERROR' || st.status === 'CANCELLED' || st.status === 'COMPLETE') {
+          // A recent session-specific ready/heartbeat beats a potentially stale
+          // slug-level terminal status from Kaggle.
+          if (hasRecentServingEvidence(session)) {
+            session.status = 'RUNNING';
+            session.done = false;
+            const last = session.events[session.events.length - 1];
+            if (!last || last.phase !== 'sync-conflict') {
+              session.events.push({
+                time: new Date().toLocaleTimeString(),
+                phase: 'sync-conflict',
+                text: `Kaggle informó ${st.status}, pero la sesión emitió actividad reciente; se mantiene conectada.`,
+              });
+            }
+            continue;
+          }
+
           session.status = st.status;
           session.done = true;
           session.endpoint = undefined;
@@ -364,7 +406,7 @@ export class InstanceManager {
           session.events.push({
             time: new Date().toLocaleTimeString(),
             phase: 'stopped',
-            text: `Instance stopped: ${st.status} ${st.failureMessage || ''}`,
+            text: `Kaggle confirmó fin de la sesión: ${st.status}${st.rawStatus !== undefined ? ` (raw=${st.rawStatus})` : ''} ${st.failureMessage || ''}`.trim(),
           });
           const ep = this.endpoints.get(session.account);
           if (ep) ep.status = 'OFFLINE';
@@ -417,6 +459,36 @@ export class InstanceManager {
     if (!account.token) return;
 
     let session = this.sessions.get(account.id);
+
+    // First reconcile against the per-launch ntfy topic. It is session-specific
+    // and can recover a live TPU even when Kaggle's slug-level status is stale.
+    if (session?.topic) {
+      const lifecycle = await fetchLatestNtfyLifecycleEvent(session.topic, 900);
+      if (lifecycle) {
+        const isServing = lifecycle.phase === 'ready' || lifecycle.phase === 'serving' || lifecycle.phase === 'heartbeat';
+        const isTerminal = lifecycle.phase === 'failed' || lifecycle.phase === 'stopped' || lifecycle.phase === 'auto-shutdown';
+
+        if (isServing || isTerminal) {
+          this.handleNtfyEvent(session, lifecycle, recoveryEventText(lifecycle), session.model || 'qwen38-27b');
+
+          if (isServing) {
+            const existing = this.listeners.get(account.id);
+            if (existing) existing.stop();
+            const sess = session;
+            const listener = new NtfyListener(sess.topic, (ev, text) => {
+              this.handleNtfyEvent(sess, ev, text, sess.model || 'qwen38-27b');
+            });
+            listener.start(4000);
+            this.listeners.set(account.id, listener);
+            this.ensurePolling();
+          }
+
+          this.notify();
+          return;
+        }
+      }
+    }
+
     const api = new KaggleApi(account.token, account.username || 'user');
     const slugs = Array.from(new Set([session?.slug, 'qwen38-tpu-serve', 'glm53-tpu-serve'].filter(Boolean) as string[]));
 
