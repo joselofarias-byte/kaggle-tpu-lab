@@ -37,13 +37,23 @@ describe('decideEndpointMount', () => {
     if (v.kind === 'mount') expect(v.url).toBe('http://10.0.0.2:8000/v1');
   });
 
-  it('vetoes mounting while Kaggle reports QUEUED', () => {
+  it('mounts session-specific READY even if Kaggle still reports QUEUED', () => {
     const v = decideEndpointMount({
       ...base,
       status: 'QUEUED',
       eventEndpoint: 'https://example.trycloudflare.com',
     });
-    expect(v).toEqual({ kind: 'veto-queued' });
+    expect(v).toEqual({ kind: 'mount', url: 'https://example.trycloudflare.com/v1' });
+  });
+
+  it('mounts session-specific heartbeat even if Kaggle still reports QUEUED', () => {
+    const v = decideEndpointMount({
+      ...base,
+      status: 'QUEUED',
+      phase: 'heartbeat',
+      eventEndpoint: 'https://example.trycloudflare.com/v1',
+    });
+    expect(v).toEqual({ kind: 'mount', url: 'https://example.trycloudflare.com/v1' });
   });
 
   it('skips tunnel-url phase (URL recorded, never marked READY)', () => {
