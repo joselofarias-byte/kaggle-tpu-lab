@@ -7,8 +7,8 @@ describe('parseKaggleStatusPayload', () => {
     expect(parseKaggleStatusPayload({ workerStatus: 1 }).status).toBe('RUNNING');
     expect(parseKaggleStatusPayload({ workerStatus: 2 }).status).toBe('COMPLETE');
     expect(parseKaggleStatusPayload({ workerStatus: 3 }).status).toBe('ERROR');
-    expect(parseKaggleStatusPayload({ workerStatus: 4 }).status).toBe('CANCELLED');
-    expect(parseKaggleStatusPayload({ workerStatus: 5 }).status).toBe('CANCELLED');
+    expect(parseKaggleStatusPayload({ workerStatus: 4 }).status).toBe('UNKNOWN');
+    expect(parseKaggleStatusPayload({ workerStatus: 5 }).status).toBe('UNKNOWN');
   });
 
   it('treats NEW_SCRIPT (6) as non-terminal queued/startup state', () => {
@@ -21,7 +21,9 @@ describe('parseKaggleStatusPayload', () => {
     expect(parseKaggleStatusPayload({ status: 'QUEUED' }).status).toBe('QUEUED');
     expect(parseKaggleStatusPayload({ status: 'COMPLETE' }).status).toBe('COMPLETE');
     expect(parseKaggleStatusPayload({ status: 'ERROR' }).status).toBe('ERROR');
-    expect(parseKaggleStatusPayload({ status: 'CANCEL_ACKNOWLEDGED' }).status).toBe('CANCELLED');
+    expect(parseKaggleStatusPayload({ status: 'CANCEL_REQUESTED' }).status).toBe('UNKNOWN');
+    expect(parseKaggleStatusPayload({ status: 'CANCEL_ACKNOWLEDGED' }).status).toBe('UNKNOWN');
+    expect(parseKaggleStatusPayload({ status: 'CANCELLED' }).status).toBe('CANCELLED');
   });
 
   it('never invents CANCELLED for unknown payloads', () => {
