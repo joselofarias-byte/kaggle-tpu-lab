@@ -208,10 +208,14 @@ export const App: React.FC = () => {
     if (active.some((s) => s.status === 'QUEUED') && !active.some((s) => s.status === 'RUNNING' || s.status === 'WINNER')) {
       return { text: 'En cola', cls: 'running' };
     }
+    if (active.some((s) => s.status === 'UNKNOWN')) {
+      return { text: 'Estado sin confirmar', cls: 'running' };
+    }
     if (active.length > 0) {
       return { text: 'Iniciando', cls: 'running' };
     }
-    return { text: 'Sin conexión', cls: 'offline' };
+    // This is a controller/session state, not a network-connectivity verdict.
+    return { text: 'Sin sesión vinculada', cls: 'offline' };
   };
 
   const statusInfo = getStatusInfo();
