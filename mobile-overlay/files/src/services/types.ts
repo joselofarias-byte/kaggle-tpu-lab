@@ -74,7 +74,7 @@ export interface RaceSession {
   apiKey: string;
   endpointUrl?: string;
   model?: ModelId;
-  status: 'IDLE' | 'QUEUED' | 'RUNNING' | 'WINNER' | 'CANCELLED' | 'COMPLETE' | 'ERROR';
+  status: 'IDLE' | 'UNKNOWN' | 'QUEUED' | 'RUNNING' | 'WINNER' | 'CANCELLED' | 'COMPLETE' | 'ERROR';
   seenBoot: boolean;
   done: boolean;
   raceGroupId?: string;

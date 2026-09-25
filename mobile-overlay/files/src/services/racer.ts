@@ -319,21 +319,21 @@ export class InstanceManager {
       try {
         const st = await new KaggleApi(session.token, session.username).getStatus(session.slug);
         if (st.status === 'UNKNOWN') {
-          if (st.isNetworkError) continue;
-          session.status = 'IDLE';
-          session.done = true;
-          session.endpoint = undefined;
-          this.endpoints.delete(session.account);
-          const listener = this.listeners.get(session.account);
-          if (listener) {
-            listener.stop();
-            this.listeners.delete(session.account);
+          // UNKNOWN is not a terminal state. API/network ambiguity must never
+          // make us stop tracking a kernel that may still be consuming TPU quota.
+          const last = session.events[session.events.length - 1];
+          if (!last || last.phase !== 'sync-unknown') {
+            const detail = st.httpStatus
+              ? `HTTP ${st.httpStatus}`
+              : (st.isNetworkError ? 'problema de red' : (st.detail || 'respuesta no reconocida'));
+            session.events.push({
+              time: new Date().toLocaleTimeString(),
+              phase: 'sync-unknown',
+              text: `No se pudo confirmar el estado en Kaggle (${detail}). Se mantiene el seguimiento y no se da la sesión por terminada.`,
+            });
           }
-          session.events.push({
-            time: new Date().toLocaleTimeString(),
-            phase: 'stopped',
-            text: `Kernel not found on Kaggle (IDLE)`,
-          });
+          if (session.status === 'IDLE') session.status = 'UNKNOWN';
+          session.done = false;
           continue;
         }
         if (st.status === 'RUNNING' && session.status !== 'RUNNING' && session.status !== 'WINNER') {
@@ -421,11 +421,17 @@ export class InstanceManager {
     const slugs = Array.from(new Set([session?.slug, 'qwen38-tpu-serve', 'glm53-tpu-serve'].filter(Boolean) as string[]));
 
     let foundActive = false;
+    let sawUnknown = false;
+    let sessionTerminalStatus: RaceSession['status'] | null = null;
+    let sessionTerminalMessage = '';
 
     for (const slug of slugs) {
       try {
         const st = await api.getStatus(slug);
-        if (st.status === 'UNKNOWN' && st.isNetworkError) continue;
+        if (st.status === 'UNKNOWN') {
+          sawUnknown = true;
+          continue;
+        }
 
         // Only adopt when Kaggle explicitly returns RUNNING or QUEUED
         if (st.status === 'RUNNING' || st.status === 'QUEUED') {
@@ -492,40 +498,56 @@ export class InstanceManager {
           this.notify();
           return;
         } else if (st.status === 'CANCELLED' || st.status === 'COMPLETE' || st.status === 'ERROR') {
-          if (session) {
-            session.status = st.status;
-            session.done = true;
-            session.endpoint = undefined;
-            this.endpoints.delete(account.id);
-            const listener = this.listeners.get(account.id);
-            if (listener) {
-              listener.stop();
-              this.listeners.delete(account.id);
-            }
+          // Only a positive terminal state for the session's own slug may end it.
+          // Other checked slugs are merely fallback candidates.
+          if (session && slug === session.slug) {
+            sessionTerminalStatus = st.status;
+            sessionTerminalMessage = st.failureMessage || '';
           }
         }
       } catch {}
     }
 
     if (!foundActive) {
-      if (session) {
-        if (!session.done || session.status === 'QUEUED') {
-          session.status = session.status === 'QUEUED' ? 'IDLE' : session.status;
-          session.done = true;
-          session.endpoint = undefined;
-          this.endpoints.delete(account.id);
-          const listener = this.listeners.get(account.id);
-          if (listener) {
-            listener.stop();
-            this.listeners.delete(account.id);
-          }
+      if (session && sessionTerminalStatus) {
+        session.status = sessionTerminalStatus;
+        session.done = true;
+        session.endpoint = undefined;
+        this.endpoints.delete(account.id);
+        const listener = this.listeners.get(account.id);
+        if (listener) {
+          listener.stop();
+          this.listeners.delete(account.id);
+        }
+        session.events.push({
+          time: new Date().toLocaleTimeString(),
+          phase: 'stopped',
+          text: `Kaggle confirmó fin de la sesión: ${sessionTerminalStatus}${sessionTerminalMessage ? ` — ${sessionTerminalMessage}` : ''}`,
+        });
+      } else if (session && sawUnknown && !session.done) {
+        // Preserve the last confirmed state. Losing one status probe must not
+        // detach the controller from a potentially live TPU.
+        if (session.status === 'IDLE') session.status = 'UNKNOWN';
+        session.done = false;
+        const last = session.events[session.events.length - 1];
+        if (!last || last.phase !== 'sync-unknown') {
           session.events.push({
             time: new Date().toLocaleTimeString(),
-            phase: 'sync',
-            text: 'Synced cloud status: No active or queued TPU tasks found',
+            phase: 'sync-unknown',
+            text: 'Estado de Kaggle sin confirmar. Se conserva la sesión y el monitoreo para evitar perder una TPU que siga consumiendo cuota.',
           });
         }
-      } else {
+        this.ensurePolling();
+      } else if (session && !session.done) {
+        session.status = 'UNKNOWN';
+        session.done = false;
+        session.events.push({
+          time: new Date().toLocaleTimeString(),
+          phase: 'sync-unknown',
+          text: 'No hubo una confirmación terminal de Kaggle. La sesión permanece bajo seguimiento.',
+        });
+        this.ensurePolling();
+      } else if (!session) {
         this.sessions.set(account.id, {
           account: account.id,
           accountName: account.name || account.username,
@@ -538,7 +560,13 @@ export class InstanceManager {
           status: 'IDLE',
           seenBoot: false,
           done: true,
-          events: [{ time: new Date().toLocaleTimeString(), phase: 'sync', text: 'Sincronización completa; no hay tareas TPU activas ni en cola para esta cuenta' }],
+          events: [{
+            time: new Date().toLocaleTimeString(),
+            phase: sawUnknown ? 'sync-unknown' : 'sync',
+            text: sawUnknown
+              ? 'No se pudo confirmar una sesión activa en Kaggle; no se afirma que esté detenida.'
+              : 'Sincronización completa; no hay una sesión conocida activa ni en cola para esta cuenta',
+          }],
         });
       }
     }

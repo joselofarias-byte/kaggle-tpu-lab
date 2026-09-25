@@ -117,6 +117,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const BADGES: Record<string, { label: string; color: string; bg: string }> = {
     WINNER: { label: '🏆 Ganadora', color: 'var(--accent-emerald)', bg: 'rgba(16, 185, 129, 0.2)' },
     RUNNING: { label: 'En ejecución', color: 'var(--accent-cyan)', bg: 'rgba(6, 182, 212, 0.2)' },
+    UNKNOWN: { label: 'Estado sin confirmar', color: 'var(--accent-amber)', bg: 'rgba(245, 158, 11, 0.2)' },
     QUEUED: { label: 'En cola', color: 'var(--accent-amber)', bg: 'rgba(245, 158, 11, 0.2)' },
     CANCELLED: { label: 'Cancelada', color: 'var(--text-muted)', bg: 'rgba(100, 116, 139, 0.15)' },
     COMPLETE: { label: 'Finalizada', color: 'var(--accent-blue)', bg: 'rgba(59, 130, 246, 0.2)' },
