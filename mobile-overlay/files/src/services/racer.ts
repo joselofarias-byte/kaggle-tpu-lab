@@ -57,6 +57,29 @@ export function hasRecentServingEvidence(
   return ageSeconds <= maxAgeSeconds;
 }
 
+/**
+ * Reconcile a slug-level Kaggle `QUEUED` report with session-specific evidence.
+ *
+ * `decideEndpointMount` already mounts READY/heartbeat while Kaggle lags on
+ * QUEUED. These poll/refresh paths used to undo that mount:
+ *
+ * - `keep-serving`: a fresh ready/serving/heartbeat wins. Do not demote and
+ *   do not drop the endpoint.
+ * - `clear-false-ready`: no fresh serving evidence. A mounted URL would be a
+ *   false READY (or a leftover from an older run) and must be cleared.
+ *   If the session is not already QUEUED, demote it.
+ * - `stay-queued`: already waiting, with nothing mounted. Leave it alone.
+ */
+export function decideQueuedStatusReconcile(opts: {
+  sessionStatus: RaceSession['status'];
+  hasEndpoint: boolean;
+  recentServingEvidence: boolean;
+}): { kind: 'keep-serving' } | { kind: 'clear-false-ready' } | { kind: 'stay-queued' } {
+  if (opts.recentServingEvidence) return { kind: 'keep-serving' };
+  if (opts.hasEndpoint || opts.sessionStatus !== 'QUEUED') return { kind: 'clear-false-ready' };
+  return { kind: 'stay-queued' };
+}
+
 function recoveryEventText(ev: NtfyEvent): string {
   if (ev.phase === 'heartbeat') {
     return `TPU activa confirmada por heartbeat${ev.up_min ? ` (${ev.up_min} min)` : ''}.`;
@@ -78,6 +101,8 @@ export class InstanceManager {
   private nativeTopics: Map<string, string> = new Map();
   private endpoints: Map<string, LiveEndpoint> = new Map();
   private pollInterval: any = null;
+  // One timeline note per account while Kaggle stays QUEUED against a live session.
+  private queuedKeepNoted: Set<string> = new Set();
   private onUpdateCb: InstanceUpdateCallback;
 
   constructor(onUpdate: InstanceUpdateCallback) {
@@ -375,15 +400,18 @@ export class InstanceManager {
           });
           if (session.raceGroupId) this.checkRaceWinner(session);
         } else if (st.status === 'QUEUED') {
-          if (session.status !== 'QUEUED') {
-            session.status = 'QUEUED';
-            // While queued, clear any false ready endpoint
-            session.endpoint = undefined;
-            this.endpoints.delete(session.account);
+          const applied = this.applyQueuedKaggleReport(session);
+          if (applied.kind === 'clear-false-ready' && applied.statusChanged) {
             session.events.push({
               time: new Date().toLocaleTimeString(),
               phase: 'queued',
               text: `[${session.username || session.accountName}] Kaggle: Waiting in queue for TPU v5e-8 slot...`,
+            });
+          } else if (applied.kind === 'clear-false-ready' && applied.endpointCleared) {
+            session.events.push({
+              time: new Date().toLocaleTimeString(),
+              phase: 'queued',
+              text: `[${session.username || session.accountName}] Kaggle sigue en cola; se descartó un endpoint sin actividad reciente de la sesión.`,
             });
           }
         } else if (st.status === 'ERROR' || st.status === 'CANCELLED' || st.status === 'COMPLETE') {
@@ -537,19 +565,26 @@ export class InstanceManager {
             session = currentSession;
           }
           currentSession.slug = slug;
-          currentSession.status = st.status;
           currentSession.done = false;
+          let keptDespiteQueued = false;
           if (st.status === 'QUEUED') {
-            currentSession.endpoint = undefined;
-            this.endpoints.delete(account.id);
+            // Do not assign QUEUED before the reconcile: a fresh ntfy
+            // ready/heartbeat must keep RUNNING/WINNER and the endpoint.
+            const applied = this.applyQueuedKaggleReport(currentSession, false);
+            keptDespiteQueued = applied.kind === 'keep-serving';
+          } else {
+            currentSession.status = st.status;
           }
 
           if (topic) currentSession.topic = topic;
           if (apiKey) currentSession.apiKey = apiKey;
           if (st.status === 'RUNNING') currentSession.seenBoot = true;
 
-          const statusText =
-            st.status === 'QUEUED' ? 'Queued (QUEUED)' : '🟢 TPU Instance Running';
+          const statusText = keptDespiteQueued
+            ? 'QUEUED en Kaggle, endpoint conservado (actividad reciente de la sesión)'
+            : currentSession.status === 'QUEUED'
+              ? 'Queued (QUEUED)'
+              : '🟢 TPU Instance Running';
 
           currentSession.events.push({
             time: new Date().toLocaleTimeString(),
@@ -678,6 +713,63 @@ export class InstanceManager {
   public async stop(): Promise<void> {
     if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
     for (const [accId] of this.sessions) await this.stopAccount(accId);
+  }
+
+  /**
+   * Apply a Kaggle QUEUED observation without undoing a live session.
+   * `announce` is for the 12s monitor; refresh writes its own sync line.
+   */
+  private applyQueuedKaggleReport(session: RaceSession, announce = true): {
+    kind: 'keep-serving' | 'clear-false-ready' | 'stay-queued';
+    statusChanged: boolean;
+    endpointCleared: boolean;
+  } {
+    const hadEndpoint = Boolean(session.endpoint) || this.endpoints.has(session.account);
+    const verdict = decideQueuedStatusReconcile({
+      sessionStatus: session.status,
+      hasEndpoint: hadEndpoint,
+      recentServingEvidence: hasRecentServingEvidence(session),
+    });
+
+    if (verdict.kind === 'keep-serving') {
+      const before = session.status;
+      if (session.status !== 'RUNNING' && session.status !== 'WINNER') {
+        session.status = 'RUNNING';
+      }
+      session.done = false;
+      if (!session.endpoint) {
+        const mapped = this.endpoints.get(session.account);
+        if (mapped && mapped.status === 'READY') session.endpoint = mapped;
+      }
+      if (announce && !this.queuedKeepNoted.has(session.account)) {
+        this.queuedKeepNoted.add(session.account);
+        session.events.push({
+          time: new Date().toLocaleTimeString(),
+          phase: 'sync-conflict',
+          text: 'Kaggle informó QUEUED, pero la sesión emitió actividad reciente; se mantiene el endpoint.',
+        });
+      }
+      return {
+        kind: 'keep-serving',
+        statusChanged: session.status !== before,
+        endpointCleared: false,
+      };
+    }
+
+    this.queuedKeepNoted.delete(session.account);
+    if (verdict.kind === 'stay-queued') {
+      return { kind: 'stay-queued', statusChanged: false, endpointCleared: false };
+    }
+
+    const before = session.status;
+    session.status = 'QUEUED';
+    session.endpoint = undefined;
+    this.endpoints.delete(session.account);
+    return {
+      kind: 'clear-false-ready',
+      statusChanged: before !== 'QUEUED',
+      endpointCleared: hadEndpoint,
+    };
   }
 
   private notify() {
