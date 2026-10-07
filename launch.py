@@ -126,6 +126,8 @@ def cmd_serve(args):
             "max_num_seqs": args.max_num_seqs,
             "mtp_tokens": args.mtp,
             "reasoning_effort_default": args.reasoning_effort,
+            "idle_timeout_min": args.idle_timeout_min,
+            "tunnel_recovery_min": args.tunnel_recovery_min,
             "keepalive_min": args.keepalive_min,
             "idle_timeout_min": args.idle_timeout_min,
             "weights_dataset": args.weights_dataset,
@@ -202,6 +204,8 @@ def cmd_serve(args):
         "hf_model_id": cfg.get("hf_model_id"),
         "served_model_name": cfg.get("served_model_name"),
         "weights_dataset": cfg.get("weights_dataset"),
+        "idle_timeout_min": cfg.get("idle_timeout_min"),
+        "tunnel_recovery_min": cfg.get("tunnel_recovery_min"),
         "model_recipe": args.model,
     }))
     say("Enviado. Kaggle puede demorar unos minutos en asignar la TPU y montar los datos; "
@@ -912,6 +916,7 @@ def _wait_for_public_endpoint(kernel, topic, start_timeout_s=2100, queue_timeout
         "warmed": "QWEN CALENTADO",
         "tunnel-url": "TUNEL PUBLICO RESERVADO",
         "tunnel-failed": "FALLO EL TUNEL PUBLICO",
+        "tunnel-retry": "REINTENTANDO TUNEL PUBLICO",
         "serving": "SERVIDOR QWEN SALUDABLE",
         "ready": "QWEN LISTO",
     }
@@ -1141,6 +1146,8 @@ def main():
                         "(qwen38-27b: xhigh | medium | low; glm53-flash: low | medium | high, default low)")
     s.add_argument("--idle-timeout-min", type=int, default=30,
                    help="Qwen: apagar tras estos minutos sin inferencia; no interrumpe solicitudes activas")
+    s.add_argument("--tunnel-recovery-min", type=int, default=5,
+                   help="Qwen: si falla trycloudflare durante el arranque, reintentar este tiempo una vez sano")
     s.add_argument("--keepalive-min", type=int, default=480,
                    help="auto-shutdown after this many minutes of serving")
     s.add_argument("--weights-dataset", default=WEIGHTS_DATASET,
@@ -1222,6 +1229,8 @@ def main():
     args = ap.parse_args()
     if getattr(args, "idle_timeout_min", 30) <= 0:
         ap.error("--idle-timeout-min debe ser mayor que cero")
+    if getattr(args, "tunnel_recovery_min", 5) < 0:
+        ap.error("--tunnel-recovery-min no puede ser negativo")
     args.fn(args)
 
 
