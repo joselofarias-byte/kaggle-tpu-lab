@@ -400,6 +400,71 @@ def cmd_stop(args):
     say((p.stdout + p.stderr).strip() or "listo")
 
 
+
+def cmd_prompt(args):
+    """Enviar un prompt al endpoint activo. El argumento puede ser texto o una ruta."""
+    st = load_state()
+    events = read_events(st["topic"], int(time.time()) - 24 * 3600)
+    ready = next((ev for _, ev in reversed(events)
+                  if ev.get("phase") == "ready" and ev.get("endpoint")), None)
+    if not ready:
+        sys.exit("No hay un endpoint publico disponible. Ejecuta `python launch.py status` "
+                 "y confirma que URL base no sea NO DISPONIBLE.")
+
+    source = args.prompt
+    path = Path(source).expanduser()
+    if path.is_file():
+        prompt = path.read_text()
+        say(f"Prompt cargado desde {path} ({len(prompt)} caracteres).")
+    else:
+        prompt = source
+
+    endpoint = ready["endpoint"].rstrip("/")
+    if not endpoint.endswith("/v1"):
+        endpoint += "/v1"
+    payload = {
+        "model": ready.get("model", "qwen3.8-27b"),
+        "messages": [{"role": "user", "content": prompt}],
+        "chat_template_kwargs": {"reasoning_effort": args.reasoning_effort},
+    }
+    req = urllib.request.Request(
+        endpoint + "/chat/completions",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Authorization": f"Bearer {st['api_key']}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=args.timeout) as r:
+            data = json.loads(r.read().decode())
+    except Exception as e:
+        sys.exit(f"Fallo enviando el prompt: {e}")
+
+    try:
+        message = data["choices"][0]["message"]
+        answer = message.get("content") or ""
+        reasoning = message.get("reasoning_content") or ""
+    except Exception:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+
+    if args.show_reasoning and reasoning:
+        print("\n--- RAZONAMIENTO ---\n")
+        print(reasoning)
+    print("\n--- RESPUESTA ---\n")
+    print(answer)
+
+    out = Path.home() / "storage" / "downloads" / "QWEN_ULTIMA_RESPUESTA.txt"
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(answer)
+        say(f"Respuesta guardada en {out}")
+    except Exception as e:
+        say(f"No pude guardar la respuesta en Descargas: {e}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -458,6 +523,16 @@ def main():
 
     s = sub.add_parser("stop", help="detener la sesión TPU")
     s.set_defaults(fn=cmd_stop)
+
+    s = sub.add_parser("prompt", help="enviar texto o un archivo al Qwen activo")
+    s.add_argument("prompt", help="texto del prompt o ruta a un archivo de texto")
+    s.add_argument("--reasoning-effort", default="xhigh",
+                   choices=["xhigh", "high", "medium", "low"])
+    s.add_argument("--timeout", type=int, default=900,
+                   help="timeout HTTP en segundos")
+    s.add_argument("--show-reasoning", action="store_true",
+                   help="mostrar tambien reasoning_content si el servidor lo devuelve")
+    s.set_defaults(fn=cmd_prompt)
 
     args = ap.parse_args()
     args.fn(args)
