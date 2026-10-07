@@ -66,6 +66,7 @@ DEFAULTS = {
                                    # dataset's cache); the script then warms the common
                                    # request shapes itself; rare shapes stall once (~1 min)
     "idle_timeout_min": 30,         # stop after 30 min without authenticated inference
+    "tunnel_recovery_min": 5,      # retry failed public exposure after the model is healthy
     "keepalive_min": 480,          # auto-shutdown guard (Kaggle TPU caps at 9h anyway)
     "api_key": "",                 # generated if empty
     "ntfy_topic": "",              # optional: publish progress to ntfy.sh/<topic>
@@ -161,6 +162,10 @@ def _event_message_es(phase, extra):
         return f"Compilando gráficos XLA ({mins} min transcurridos)."
     if phase == "tunnel-url":
         return "Endpoint público reservado; todavía no está listo."
+    if phase == "tunnel-failed":
+        return "No se obtuvo URL pública; Qwen seguirá arrancando y el túnel se reintentará cuando el servidor esté sano."
+    if phase == "tunnel-retry":
+        return f"Reintentando el túnel público (intento {extra.get('attempt', '?')})."
     if phase in ("ready", "serving"):
         return "TPU lista y servicio de inferencia disponible."
     if phase == "heartbeat":
@@ -170,6 +175,8 @@ def _event_message_es(phase, extra):
     if phase == "auto-shutdown":
         if extra.get("reason") == "idle-timeout":
             return f"Apagado automatico tras {extra.get('idle_timeout_min', 30)} minutos sin solicitudes."
+        if extra.get("reason") == "tunnel-unavailable":
+            return f"Apagado automático: no se pudo recuperar el túnel público en {extra.get('tunnel_recovery_min', 5)} min."
         return "Tiempo máximo alcanzado; instancia detenida correctamente."
     if phase == "failed":
         if extra.get("step") == "no-tpu":
@@ -939,6 +946,71 @@ else:
 # ---------------- 6. wait, announce, self-test, keep alive ----------------
 startup = wait_healthy(server, CFG, expect_min)
 publish("serving", startup_secs=startup)
+
+# A transient TryCloudflare failure must not strand a healthy TPU. Retry after
+# vLLM is healthy, and do not arm the inference-idle timer until the public
+# endpoint actually exists.
+if not url:
+    recovery_min = max(0, int(CFG.get("tunnel_recovery_min", 5) or 0))
+    recovery_deadline = time.time() + recovery_min * 60
+    attempt = 0
+    if not CLOUDFLARED.exists():
+        fetch_cloudflared()
+    pat = re.compile(r"https://[a-z0-9-]+\\.trycloudflare\\.com")
+
+    while CLOUDFLARED.exists() and time.time() < recovery_deadline and url is None:
+        attempt += 1
+        publish("tunnel-retry", attempt=attempt, tunnel_recovery_min=recovery_min)
+
+        for tunnel_args, label in (([], "auto"), (["--protocol", "http2"], "http2")):
+            lines = []
+            tunnel = subprocess.Popen(
+                [str(CLOUDFLARED), "tunnel", "--url", f"http://127.0.0.1:{PORT}",
+                 "--no-autoupdate", *tunnel_args],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+            def pump_cf_recovery(proc=tunnel, sink=lines, transport=label, n=attempt):
+                for line in proc.stdout:
+                    sink.append(line.rstrip())
+                    _raw.write(f"[cloudflared:recovery-{n}:{transport}] {line}")
+            threading.Thread(target=pump_cf_recovery, daemon=True).start()
+
+            deadline = min(time.time() + 45, recovery_deadline)
+            while time.time() < deadline and url is None:
+                for ln in list(lines):
+                    found = pat.search(ln)
+                    if found:
+                        url = found.group(0).rstrip("/")
+                        break
+                if tunnel.poll() is not None and url is None:
+                    break
+                time.sleep(1)
+
+            if url:
+                break
+
+            if tunnel.poll() is None:
+                tunnel.terminate()
+                try:
+                    tunnel.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    tunnel.kill()
+                    tunnel.wait(timeout=5)
+
+        if url is None:
+            remaining = recovery_deadline - time.time()
+            if remaining > 0:
+                time.sleep(min(15, remaining))
+
+    if url:
+        log(f"   public tunnel recovered: {url}/v1")
+        publish("tunnel-url", endpoint=f"{url}/v1", recovered=True, attempts=attempt)
+    else:
+        publish("auto-shutdown", reason="tunnel-unavailable",
+                tunnel_recovery_min=recovery_min)
+        stop_server(server)
+        sys.exit(2)
+
 log("")
 log("#" * 70)
 log(f"#  READY — the server is live ({elapsed()} after start)")
