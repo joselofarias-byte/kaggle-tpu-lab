@@ -956,7 +956,7 @@ if not url:
     attempt = 0
     if not CLOUDFLARED.exists():
         fetch_cloudflared()
-    pat = re.compile(r"https://[a-z0-9-]+\\.trycloudflare\\.com")
+    pat = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
     while CLOUDFLARED.exists() and time.time() < recovery_deadline and url is None:
         attempt += 1
