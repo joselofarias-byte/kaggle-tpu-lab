@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Instala el parche TPU desde un commit fijo; no lanza ni detiene instancias."""
+"""Instala idle30 + recuperación de túnel desde un commit fijo; no lanza instancias."""
 import datetime
 import json
 import os
@@ -10,8 +10,9 @@ import tempfile
 from pathlib import Path
 
 REPOSITORY = "joselofarias-byte/kaggle-tpu-lab"
-REF = "d1301b21be72c14874c82ce01a4330eab8207733"
-FILES = ("launch.py", "qwen38-27b/kernel/serve_qwen38.py", "scripts/diagnose_session.py")
+REF = "98d613a01d8fac26b2a7df3da5c1556b05e2189b"
+FILES = ("launch.py", "qwen38-27b/kernel/serve_qwen38.py",
+         "scripts/diagnose_session.py", "scripts/restart_preserving_model.py")
 
 def main():
     root = Path.home() / "kaggle-tpu-lab"
@@ -63,7 +64,7 @@ def main():
             raise
     (backup / "manifest.json").write_text(json.dumps({"source": REPOSITORY, "ref": REF,
                                                      "files": existed}, indent=2))
-    print("Parche instalado: apagado tras 30 min sin inferencia y correccion del tunel.")
+    print("Parche instalado: idle configurable + recuperacion automatica del tunel publico.")
     print("Respaldo:", backup)
     print("El kernel ya enviado a Kaggle sigue usando su codigo anterior.")
     print("No se lanzo ni detuvo ninguna instancia. Consultando la sesion existente...")
