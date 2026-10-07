@@ -129,7 +129,6 @@ def cmd_serve(args):
             "idle_timeout_min": args.idle_timeout_min,
             "tunnel_recovery_min": args.tunnel_recovery_min,
             "keepalive_min": args.keepalive_min,
-            "idle_timeout_min": args.idle_timeout_min,
             "weights_dataset": args.weights_dataset,
             "hf_model_id": args.hf_model_id,
             "served_model_name": args.served_model_name,
