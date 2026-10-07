@@ -1029,6 +1029,11 @@ def cmd_auto_audit(args):
         try:
             st = load_state()
             status, _ = _kernel_status(st["kernel"])
+            if status in ("UNKNOWN", "CANCEL_ACKNOWLEDGED", "CANCELACKNOWLEDGED",
+                          "CANCEL_REQUESTED", "CANCELREQUESTED"):
+                sys.exit("El estado de la sesion es ambiguo o la cancelacion sigue pendiente. "
+                         "No voy a iniciar otra TPU automaticamente. Comproba la sesion existente "
+                         "con scripts/diagnose_session.py antes de volver a lanzar.")
             active = status in ("QUEUED", "RUNNING")
         except Exception:
             active = False
