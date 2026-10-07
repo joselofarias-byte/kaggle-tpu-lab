@@ -8,6 +8,7 @@ on:
     branches:
       - main
       - "feature/mobile-es-secure-v1-20260924"
+      - "feature/mobile-backend-sync-20261007"
   pull_request:
     paths:
       - "mobile-overlay/**"
@@ -35,10 +36,24 @@ jobs:
           test -f mobile-src/src/services/secureStore.ts
           test -f mobile-src/android/app/src/main/java/com/kaggletpulab/app/SecureStoragePlugin.java
 
+      - name: Sync current backend kernels into mobile
+        run: |
+          cp qwen38-27b/kernel/serve_qwen38.py mobile-src/kernels/serve_qwen38.py
+          cp glm53-flash/kernel/serve_glm53.py mobile-src/kernels/serve_glm53.py
+          rm -rf mobile-src/kernels/glm53
+          cp -a glm53-flash/engine/glm53 mobile-src/kernels/glm53
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Validate current backend fixes
+        run: |
+          python3 -m compileall -q mobile-src/kernels
+          python3 -m unittest discover -s tests -p 'test_idle_shutdown.py' -v
+          python3 -m unittest discover -s tests -p 'test_launcher_reconciliation.py' -v
+          python3 -m unittest discover -s tests -p 'test_tunnel_url.py' -v
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -88,17 +103,26 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Package APK and checksum
+      - name: Package APK, checksum and source manifest
         run: |
-          cp mobile-src/android/app/build/outputs/apk/debug/app-debug.apk kaggle-tpu-lab-es-v1.2.0-es1.apk
-          sha256sum kaggle-tpu-lab-es-v1.2.0-es1.apk | tee kaggle-tpu-lab-es-v1.2.0-es1.sha256
-          ls -lh kaggle-tpu-lab-es-v1.2.0-es1.apk
+          cp mobile-src/android/app/build/outputs/apk/debug/app-debug.apk kaggle-tpu-lab-es-v1.2.1-es2.apk
+          sha256sum kaggle-tpu-lab-es-v1.2.1-es2.apk | tee kaggle-tpu-lab-es-v1.2.1-es2.sha256
+          {
+            echo "app_version=1.2.1-es2"
+            echo "repo_commit=$GITHUB_SHA"
+            printf "qwen_kernel_sha256="
+            sha256sum qwen38-27b/kernel/serve_qwen38.py | awk '{print $1}'
+            printf "glm_kernel_sha256="
+            sha256sum glm53-flash/kernel/serve_glm53.py | awk '{print $1}'
+          } | tee kaggle-tpu-lab-es-v1.2.1-es2-build-info.txt
+          ls -lh kaggle-tpu-lab-es-v1.2.1-es2.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kaggle-tpu-lab-es-apk
+          name: kaggle-tpu-lab-es-v1.2.1-es2
           path: |
-            kaggle-tpu-lab-es-v1.2.0-es1.apk
-            kaggle-tpu-lab-es-v1.2.0-es1.sha256
+            kaggle-tpu-lab-es-v1.2.1-es2.apk
+            kaggle-tpu-lab-es-v1.2.1-es2.sha256
+            kaggle-tpu-lab-es-v1.2.1-es2-build-info.txt
           retention-days: 14
