@@ -465,6 +465,342 @@ def cmd_prompt(args):
         say(f"No pude guardar la respuesta en Descargas: {e}")
 
 
+
+def cmd_repo_audit(args):
+    """Auditar un repositorio local con Qwen usando herramientas de solo lectura."""
+    st = load_state()
+    events = read_events(st["topic"], int(time.time()) - 24 * 3600)
+    ready = next((ev for _, ev in reversed(events)
+                  if ev.get("phase") == "ready" and ev.get("endpoint")), None)
+    if not ready:
+        sys.exit("No hay endpoint publico disponible. Inicia Qwen y confirma una URL real "
+                 "con \`python launch.py status\`.")
+
+    root = Path(args.repo).expanduser().resolve()
+    if not root.is_dir():
+        sys.exit(f"No existe el repositorio: {root}")
+
+    excluded_dirs = {
+        ".git", "node_modules", "vendor", ".venv", "venv", "__pycache__",
+        "build", "dist", "target", ".gradle", ".idea", ".cache", "coverage",
+        ".next", ".turbo", ".pytest_cache",
+    }
+    sensitive_exact = {
+        ".env", "kaggle.json", "auth.json", "credentials.json", "secrets.json",
+        "id_rsa", "id_ed25519", ".npmrc", ".pypirc",
+    }
+    binary_suffixes = {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".gz",
+        ".tgz", ".tar", ".7z", ".rar", ".apk", ".aab", ".so", ".dll", ".exe",
+        ".bin", ".onnx", ".safetensors", ".gguf", ".pt", ".pth", ".class", ".jar",
+        ".keystore", ".jks", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3",
+    }
+
+    def relative_path(p):
+        try:
+            return p.resolve().relative_to(root)
+        except Exception:
+            return None
+
+    def allowed_file(p):
+        rel = relative_path(p)
+        if rel is None or not p.is_file():
+            return False
+        if any(part in excluded_dirs for part in rel.parts):
+            return False
+        low = p.name.lower()
+        if low in sensitive_exact or low.startswith(".env."):
+            return False
+        if p.suffix.lower() in binary_suffixes:
+            return False
+        return True
+
+    def repo_files():
+        files = []
+        for p in root.rglob("*"):
+            if allowed_file(p):
+                files.append(p)
+        files.sort(key=lambda x: str(relative_path(x)).lower())
+        return files
+
+    def tool_list_files(arguments):
+        pattern = str(arguments.get("pattern", "")).strip().lower()
+        rows = []
+        for p in repo_files():
+            rel = str(relative_path(p))
+            if pattern and pattern not in rel.lower():
+                continue
+            try:
+                size = p.stat().st_size
+            except OSError:
+                size = -1
+            rows.append(f"{rel}\t{size} bytes")
+            if len(rows) >= 4000:
+                rows.append("... listado truncado a 4000 archivos ...")
+                break
+        return "\n".join(rows) or "(sin coincidencias)"
+
+    def tool_read_file(arguments):
+        rel_arg = str(arguments.get("path", "")).strip()
+        p = (root / rel_arg).resolve()
+        if not allowed_file(p):
+            return "DENEGADO: archivo inexistente, binario, fuera del repo o potencialmente sensible."
+        start = max(1, int(arguments.get("start_line", 1) or 1))
+        end_arg = arguments.get("end_line")
+        end = int(end_arg) if end_arg not in (None, "") else start + 999
+        end = min(end, start + 1999)
+        try:
+            text = p.read_text(errors="replace")
+        except Exception as e:
+            return f"ERROR leyendo {rel_arg}: {e}"
+        lines = text.splitlines()
+        selected = lines[start - 1:end]
+        body = "\n".join(f"{i}: {line}" for i, line in enumerate(selected, start=start))
+        if len(body) > 120000:
+            body = body[:120000] + "\n... contenido truncado ..."
+        return body or "(archivo vacio o rango sin contenido)"
+
+    def tool_search(arguments):
+        query = str(arguments.get("query", ""))
+        path_filter = str(arguments.get("path_filter", "")).strip().lower()
+        if not query:
+            return "ERROR: query vacia."
+        regex_mode = bool(arguments.get("regex", False))
+        try:
+            rx = re.compile(query, re.I) if regex_mode else None
+        except re.error as e:
+            return f"ERROR regex: {e}"
+        hits = []
+        for p in repo_files():
+            rel = str(relative_path(p))
+            if path_filter and path_filter not in rel.lower():
+                continue
+            try:
+                lines = p.read_text(errors="replace").splitlines()
+            except Exception:
+                continue
+            for i, line in enumerate(lines, 1):
+                matched = bool(rx.search(line)) if rx else query.lower() in line.lower()
+                if matched:
+                    snippet = line.strip()
+                    if len(snippet) > 500:
+                        snippet = snippet[:500] + "..."
+                    hits.append(f"{rel}:{i}: {snippet}")
+                    if len(hits) >= 250:
+                        hits.append("... busqueda truncada a 250 coincidencias ...")
+                        return "\n".join(hits)
+        return "\n".join(hits) or "(sin coincidencias)"
+
+    def git_readonly(*git_args):
+        try:
+            p = subprocess.run(
+                ["git", "-C", str(root), *git_args],
+                capture_output=True, text=True, timeout=30)
+            out = (p.stdout or "") + (p.stderr or "")
+            return out[:120000] or "(sin salida)"
+        except Exception as e:
+            return f"ERROR git: {e}"
+
+    tool_handlers = {
+        "list_files": tool_list_files,
+        "read_file": tool_read_file,
+        "search": tool_search,
+        "git_status": lambda a: git_readonly("status", "--short", "--branch"),
+        "git_diff": lambda a: git_readonly("diff", "--no-ext-diff", "--unified=3"),
+        "git_log": lambda a: git_readonly("log", "--oneline", "--decorate", "-n",
+                                          str(min(max(int(a.get("count", 20)), 1), 100))),
+    }
+
+    tool_specs = [
+        {
+            "type": "function",
+            "function": {
+                "name": "list_files",
+                "description": "List readable source/text files in the repository. Secrets, binaries and build directories are excluded.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {"type": "string", "description": "Optional substring to filter paths."}
+                    }
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a text/source file from the repository with line numbers. Read-only.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "start_line": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                    },
+                    "required": ["path"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search",
+                "description": "Search text across readable repository files.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "path_filter": {"type": "string"},
+                        "regex": {"type": "boolean"},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_status",
+                "description": "Show git status. Read-only.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_diff",
+                "description": "Show current uncommitted git diff. Read-only.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_log",
+                "description": "Show recent commit summaries. Read-only.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "count": {"type": "integer"}
+                    }
+                },
+            },
+        },
+    ]
+
+    if args.instructions:
+        ip = Path(args.instructions).expanduser()
+        if not ip.is_file():
+            sys.exit(f"No existe el archivo de instrucciones: {ip}")
+        objective = ip.read_text(errors="replace")
+    else:
+        objective = (
+            "Realiza una auditoria exhaustiva de este repositorio. Recorre el codigo con las "
+            "herramientas disponibles antes de concluir. Busca errores de logica, fallos de "
+            "seguridad, problemas de concurrencia/estado, manejo de errores deficiente, "
+            "regresiones, codigo muerto, dependencias fragiles y riesgos de mantenimiento. "
+            "Distingue hallazgos confirmados de hipotesis. Para cada hallazgo importante cita "
+            "archivo y lineas, severidad, impacto y una correccion concreta. No modifiques nada."
+        )
+
+    endpoint = ready["endpoint"].rstrip("/")
+    if not endpoint.endswith("/v1"):
+        endpoint += "/v1"
+    model_name = ready.get("model", "qwen3.8-27b")
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Eres un auditor senior de software. Tienes herramientas estrictamente de solo "
+                "lectura para inspeccionar un repositorio local. Debes usarlas activamente y no "
+                "suponer el contenido de archivos que no hayas leido. No solicites secretos. "
+                "No propongas hallazgos sin evidencia concreta. Al terminar entrega un informe "
+                "Markdown priorizado, con referencias archivo:linea."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Repositorio local: {root.name}\n\nObjetivo:\n{objective}",
+        },
+    ]
+
+    def call_model():
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "tools": tool_specs,
+            "tool_choice": "auto",
+            "chat_template_kwargs": {"reasoning_effort": args.reasoning_effort},
+        }
+        req = urllib.request.Request(
+            endpoint + "/chat/completions",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Authorization": f"Bearer {st['api_key']}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=args.timeout) as r:
+            return json.loads(r.read().decode())
+
+    say(f"Auditoria Qwen en modo SOLO LECTURA: {root}")
+    say("Secretos, binarios y directorios de build quedan excluidos automaticamente.")
+    final_text = ""
+    for round_no in range(1, args.max_rounds + 1):
+        try:
+            data = call_model()
+        except Exception as e:
+            sys.exit(f"Fallo consultando Qwen en ronda {round_no}: {e}")
+        try:
+            msg = data["choices"][0]["message"]
+        except Exception:
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            sys.exit("Respuesta inesperada del endpoint.")
+
+        tool_calls = msg.get("tool_calls") or []
+        assistant_msg = {
+            "role": "assistant",
+            "content": msg.get("content") or "",
+        }
+        if tool_calls:
+            assistant_msg["tool_calls"] = tool_calls
+        messages.append(assistant_msg)
+
+        if not tool_calls:
+            final_text = msg.get("content") or msg.get("reasoning_content") or ""
+            break
+
+        say(f"Ronda {round_no}: Qwen solicito {len(tool_calls)} lectura(s)/busqueda(s).")
+        for tc in tool_calls:
+            fn = (tc.get("function") or {}).get("name", "")
+            raw_args = (tc.get("function") or {}).get("arguments", "{}")
+            try:
+                parsed_args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+            except Exception:
+                parsed_args = {}
+            handler = tool_handlers.get(fn)
+            result = handler(parsed_args) if handler else f"ERROR: herramienta desconocida {fn}"
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.get("id", ""),
+                "name": fn,
+                "content": result,
+            })
+    else:
+        final_text = (
+            "La auditoria alcanzo el limite de rondas antes de una conclusion final. "
+            "Aumenta --max-rounds y vuelve a ejecutar."
+        )
+
+    out = Path.home() / "storage" / "downloads" / "QWEN_REPO_AUDIT.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(final_text)
+    print("\n--- INFORME QWEN ---\n")
+    print(final_text)
+    say(f"Informe guardado en {out}")
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -533,6 +869,17 @@ def main():
     s.add_argument("--show-reasoning", action="store_true",
                    help="mostrar tambien reasoning_content si el servidor lo devuelve")
     s.set_defaults(fn=cmd_prompt)
+
+    s = sub.add_parser("audit-repo", help="auditar un repo local con Qwen en modo solo lectura")
+    s.add_argument("repo", help="ruta al repositorio local")
+    s.add_argument("--instructions", help="archivo de texto/Markdown con instrucciones de auditoria")
+    s.add_argument("--reasoning-effort", default="xhigh",
+                   choices=["xhigh", "high", "medium", "low"])
+    s.add_argument("--max-rounds", type=int, default=30,
+                   help="maximo de rondas de lectura/busqueda")
+    s.add_argument("--timeout", type=int, default=900,
+                   help="timeout por llamada HTTP en segundos")
+    s.set_defaults(fn=cmd_repo_audit)
 
     args = ap.parse_args()
     args.fn(args)
