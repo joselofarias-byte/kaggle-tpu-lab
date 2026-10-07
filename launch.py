@@ -127,6 +127,7 @@ def cmd_serve(args):
             "mtp_tokens": args.mtp,
             "reasoning_effort_default": args.reasoning_effort,
             "keepalive_min": args.keepalive_min,
+            "idle_timeout_min": args.idle_timeout_min,
             "weights_dataset": args.weights_dataset,
             "hf_model_id": args.hf_model_id,
             "served_model_name": args.served_model_name,
@@ -1138,6 +1139,8 @@ def main():
                    choices=["xhigh", "high", "medium", "low"],
                    help="server-side default; clients can still override per request "
                         "(qwen38-27b: xhigh | medium | low; glm53-flash: low | medium | high, default low)")
+    s.add_argument("--idle-timeout-min", type=int, default=30,
+                   help="Qwen: apagar tras estos minutos sin inferencia; no interrumpe solicitudes activas")
     s.add_argument("--keepalive-min", type=int, default=480,
                    help="auto-shutdown after this many minutes of serving")
     s.add_argument("--weights-dataset", default=WEIGHTS_DATASET,
@@ -1217,6 +1220,8 @@ def main():
     s.set_defaults(fn=cmd_auto_audit)
 
     args = ap.parse_args()
+    if getattr(args, "idle_timeout_min", 30) <= 0:
+        ap.error("--idle-timeout-min debe ser mayor que cero")
     args.fn(args)
 
 
