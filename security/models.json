@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "active_pipeline": [
+    {
+      "role": "baseline",
+      "model_id": "Qwen/Qwen3.8-27B",
+      "served_name": "qwen3.8-27b",
+      "deployment": "kaggle-tpu-lab/qwen38-27b",
+      "status": "enabled"
+    },
+    {
+      "role": "redteam",
+      "model_id": "hotdogs/Qwen3.8-27B-abliterated",
+      "served_name": "qwen3.8-27b-abliterated",
+      "deployment": "kaggle-tpu-lab/qwen38-27b-compatible-hf",
+      "status": "enabled_hf_download",
+      "notes": "MTP disabled for first validation run; no Kaggle weight mirror yet."
+    },
+    {
+      "role": "judge",
+      "model_id": "Qwen/Qwen3.8-27B",
+      "served_name": "qwen3.8-27b",
+      "deployment": "kaggle-tpu-lab/qwen38-27b",
+      "status": "enabled"
+    }
+  ],
+  "next_candidates": [
+    {
+      "role": "cybersecurity_specialist",
+      "model_id": "RISys-Lab/RedSage-Qwen3-8B-DPO",
+      "status": "candidate",
+      "notes": "Chat-ready cybersecurity specialist. Validate a generic Qwen3 TPU recipe before adding to the automatic pipeline."
+    },
+    {
+      "role": "cybersecurity_specialist_alt",
+      "model_id": "WhiteRabbitNeo/WhiteRabbitNeo-2.5-Qwen-2.5-Coder-7B",
+      "status": "candidate",
+      "notes": "Coder/security-oriented alternative; requires a separate compatibility pass."
+    }
+  ]
+}
