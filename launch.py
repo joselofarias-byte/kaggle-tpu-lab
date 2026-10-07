@@ -842,37 +842,34 @@ def _pick_audit_instructions(explicit=None):
     if not downloads.is_dir():
         sys.exit(f"No existe la carpeta de Descargas esperada: {downloads}")
 
-    # Preferred one-touch convention: exactly Gwen.md in Downloads.
-    exact = [p for p in downloads.iterdir()
-             if p.is_file() and p.name.lower() == "gwen.md"]
-    if len(exact) == 1:
-        return exact[0]
-    if len(exact) > 1:
-        sys.exit("Hay mas de un Gwen.md en Descargas; deja uno solo.")
+    # Si existe un nombre corto conocido, usarlo.
+    for preferred_name in ("QN.md", "QWEN.md", "Gwen.md"):
+        matches = [p for p in downloads.iterdir()
+                   if p.is_file() and p.name.lower() == preferred_name.lower()]
+        if matches:
+            return max(matches, key=lambda p: p.stat().st_mtime)
 
-    # Compatibility with the audit files already generated before adopting Gwen.md.
-    fallback = []
+    # Si no, usar automaticamente el prompt de auditoria Qwen mas reciente.
+    candidates = []
     for p in downloads.iterdir():
         if not p.is_file():
             continue
         low = p.name.lower()
-        if (low.startswith("prompt_qwen_auditoria_seguridad_9router-go")
-                and low.endswith(".md")):
-            fallback.append(p)
-    if fallback:
-        fallback.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        chosen = fallback[0]
-        canonical = downloads / "Gwen.md"
-        try:
-            shutil.copy2(chosen, canonical)
-            say(f"No encontre Gwen.md; copie el prompt mas reciente como {canonical.name}: {chosen.name}")
-            return canonical
-        except Exception as e:
-            say(f"No pude crear Gwen.md ({e}); usare directamente: {chosen.name}")
-            return chosen
+        if low.endswith(".md") and (
+            low.startswith("prompt_qwen_auditoria")
+            or ("qwen" in low and "auditoria" in low)
+            or ("qwen" in low and "audit" in low)
+        ):
+            candidates.append(p)
+
+    if candidates:
+        chosen = max(candidates, key=lambda p: p.stat().st_mtime)
+        say(f"Usare automaticamente el prompt de auditoria mas reciente: {chosen.name}")
+        return chosen
 
     sys.exit(
-        "No encontre ~/storage/downloads/Gwen.md ni un prompt_qwen_auditoria_seguridad_9router-go*.md."
+        "No encontre ningun prompt de auditoria Qwen en ~/storage/downloads/. "
+        "Deja ahi un archivo .md cuyo nombre contenga Qwen y auditoria."
     )
 
 
