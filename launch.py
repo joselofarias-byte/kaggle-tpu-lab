@@ -194,8 +194,15 @@ def cmd_serve(args):
             if "not valid dataset sources" in line:
                 say(f"AVISO: {line.strip()} — el kernel seguirá, pero puede tener que descargar pesos o compilar en frío.")
 
-    STATE_FILE.write_text(json.dumps(
-        {"kernel": f"{user}/{slug}", "topic": topic, "api_key": api_key}))
+    STATE_FILE.write_text(json.dumps({
+        "kernel": f"{user}/{slug}",
+        "topic": topic,
+        "api_key": api_key,
+        "hf_model_id": cfg.get("hf_model_id"),
+        "served_model_name": cfg.get("served_model_name"),
+        "weights_dataset": cfg.get("weights_dataset"),
+        "model_recipe": args.model,
+    }))
     say("Enviado. Kaggle puede demorar unos minutos en asignar la TPU y montar los datos; "
         f"el endpoint suele estar listo ~{model['minutes']} min después de arrancar el kernel.")
     say("Siguiendo el progreso. Ctrl-C es seguro: el servidor sigue activo; "
