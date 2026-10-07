@@ -798,11 +798,14 @@ def cmd_repo_audit(args):
             "Aumenta --max-rounds y vuelve a ejecutar."
         )
 
-    out = Path.home() / "storage" / "downloads" / "QWEN_REPO_AUDIT.md"
+    requested_out = getattr(args, "output_path", None)
+    out = (Path(requested_out).expanduser() if requested_out
+           else Path.home() / "storage" / "downloads" / "QWEN_REPO_AUDIT.md")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(final_text)
-    print("\n--- INFORME QWEN ---\n")
-    print(final_text)
+    if getattr(args, "print_report", True):
+        print("\n--- INFORME QWEN ---\n")
+        print(final_text)
     say(f"Informe guardado en {out}")
 
 
