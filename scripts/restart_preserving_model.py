@@ -50,8 +50,12 @@ def main():
         print("Este reinicio corresponde a Qwen; no se cambia la receta", recipe)
         return 1
     user, slug = kernel.split("/", 1)
+    idle_timeout = int(st.get("idle_timeout_min") or 30)
+    tunnel_recovery = int(st.get("tunnel_recovery_min") or 5)
     cmd = [sys.executable, str(launcher), "serve", "--user", user, "--slug", slug,
-           "--model", recipe, "--fast-start", "--text-only", "--idle-timeout-min", "30"]
+           "--model", recipe, "--fast-start", "--text-only",
+           "--idle-timeout-min", str(idle_timeout),
+           "--tunnel-recovery-min", str(tunnel_recovery)]
     for field, option in (("hf_model_id", "--hf-model-id"),
                           ("served_model_name", "--served-model-name"),
                           ("weights_dataset", "--weights-dataset")):
@@ -66,8 +70,9 @@ def main():
     with os.fdopen(fd, "w") as out:
         json.dump(st, out)
     print("Modelo conservado:", st.get("hf_model_id") or "receta Qwen previa")
-    print("Se inicia una nueva version del mismo kernel, con apagado a los 30 min sin inferencia.")
-    print("El arranque todavia puede demorar; el temporizador comienza despues de READY.")
+    print(f"Se inicia una nueva version del mismo kernel, con apagado a los {idle_timeout} min sin inferencia.")
+    print(f"Si falla el tunel, se reintentara hasta {tunnel_recovery} min despues de que Qwen este sano.")
+    print("El temporizador de inactividad comienza solo cuando existe un endpoint publico utilizable.")
     return subprocess.run(cmd, cwd=root).returncode
 
 if __name__ == "__main__":
