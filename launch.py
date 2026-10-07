@@ -861,8 +861,15 @@ def _pick_audit_instructions(explicit=None):
             fallback.append(p)
     if fallback:
         fallback.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        say(f"No encontre Gwen.md; usare automaticamente el mas reciente: {fallback[0].name}")
-        return fallback[0]
+        chosen = fallback[0]
+        canonical = downloads / "Gwen.md"
+        try:
+            shutil.copy2(chosen, canonical)
+            say(f"No encontre Gwen.md; copie el prompt mas reciente como {canonical.name}: {chosen.name}")
+            return canonical
+        except Exception as e:
+            say(f"No pude crear Gwen.md ({e}); usare directamente: {chosen.name}")
+            return chosen
 
     sys.exit(
         "No encontre ~/storage/downloads/Gwen.md ni un prompt_qwen_auditoria_seguridad_9router-go*.md."
