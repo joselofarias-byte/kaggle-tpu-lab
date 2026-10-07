@@ -873,25 +873,43 @@ for _ in range(60):  # cloudflared download runs in the background from step 1
         break
     time.sleep(2)
 if CLOUDFLARED.exists():
-    tunnel = subprocess.Popen([str(CLOUDFLARED), "tunnel", "--url", f"http://127.0.0.1:{PORT}",
-                               "--no-autoupdate", "--protocol", "quic"],
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    pat = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
-    lines = []
+    pat = re.compile(r"https://[a-z0-9-]+\\.trycloudflare\\.com")
+    # Kaggle can block or degrade UDP/QUIC. Let cloudflared auto-negotiate first,
+    # then retry explicitly over HTTP/2 if no quick-tunnel URL appears.
+    for tunnel_args, label in (([], "auto"), (["--protocol", "http2"], "http2")):
+        lines = []
+        tunnel = subprocess.Popen(
+            [str(CLOUDFLARED), "tunnel", "--url", f"http://127.0.0.1:{PORT}",
+             "--no-autoupdate", *tunnel_args],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
-    def pump_cf():
-        for line in tunnel.stdout:
-            lines.append(line.rstrip())
-            _raw.write(f"[cloudflared] {line}")
-    threading.Thread(target=pump_cf, daemon=True).start()
-    deadline = time.time() + 180
-    while time.time() < deadline and url is None:
-        for ln in lines:
-            m = pat.search(ln)
-            if m:
-                url = m.group(0).rstrip("/")
+        def pump_cf(proc=tunnel, sink=lines, transport=label):
+            for line in proc.stdout:
+                sink.append(line.rstrip())
+                _raw.write(f"[cloudflared:{transport}] {line}")
+        threading.Thread(target=pump_cf, daemon=True).start()
+
+        deadline = time.time() + 75
+        while time.time() < deadline and url is None:
+            for ln in list(lines):
+                found = pat.search(ln)
+                if found:
+                    url = found.group(0).rstrip("/")
+                    break
+            if tunnel.poll() is not None and url is None:
                 break
-        time.sleep(1)
+            time.sleep(1)
+
+        if url:
+            break
+
+        log(f"   cloudflared {label} no entregó URL; reintentando con transporte alternativo...")
+        if tunnel.poll() is None:
+            tunnel.terminate()
+            try:
+                tunnel.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                tunnel.kill()
 if url:
     log(f"   your endpoint will be  {url}/v1")
     log("   (not live yet — it answers 502 until the READY banner below)")
