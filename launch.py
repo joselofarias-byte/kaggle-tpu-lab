@@ -250,22 +250,27 @@ def render_event(ev):
             f"Benchmark rápido: {ev.get('decode_tok_s', '?')} tok/s "
             f"(comprobación: {ev.get('sanity', '')!r})")
     elif phase == "ready":
+        endpoint = ev.get("endpoint")
         print("\n" + "=" * 66)
-        print("  ENDPOINT LISTO")
-        print(f"  URL base : {ev['endpoint']}")
+        print("  ENDPOINT LISTO" if endpoint else "  MODELO LISTO - TUNEL NO DISPONIBLE")
+        print(f"  URL base : {endpoint or 'NO DISPONIBLE'}")
         print(f"  API key  : {ev['api_key']}")
         print(f"  modelo   : {ev['model']}   (contexto: {ev.get('max_model_len', '?')})")
         print("=" * 66)
-        base = ev["endpoint"] if ev["endpoint"].endswith("/v1") else ev["endpoint"] + "/v1"
-        print(f"""
+        if endpoint:
+            base = endpoint if endpoint.endswith("/v1") else endpoint + "/v1"
+            print(f"""
 Prueba rápida:
-  curl {base}/chat/completions -H "Authorization: Bearer $KEY" \\
+  KEY="{ev['api_key']}" curl {base}/chat/completions -H "Authorization: Bearer $KEY" \\
     -H "Content-Type: application/json" -d '{{
       "model": "{ev['model']}",
       "messages": [{{"role": "user", "content": "Hola"}}],
       "chat_template_kwargs": {{"reasoning_effort": "low"}}
     }}'
 """)
+        else:
+            say("Qwen está sirviendo dentro de Kaggle, pero no hay URL pública. "
+                "El launcher no se cerrará por este estado; revisá el evento tunnel-failed.")
         say(f"La sesión seguirá sirviendo hasta {ev.get('keepalive_min', '?')} min. "
             "Ctrl-C no la detiene; usá `python launch.py stop`.")
     elif phase == "heartbeat":
