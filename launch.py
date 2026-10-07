@@ -1155,7 +1155,7 @@ def main():
     s.add_argument("--repo", default=str(Path.home() / "9router-license-test"),
                    help="repositorio a auditar (default: ~/9router-license-test)")
     s.add_argument("--instructions",
-                   help="archivo de instrucciones; por defecto usa ~/storage/downloads/Gwen.md")
+                   help="archivo de instrucciones; por defecto autodetecta el prompt Qwen mas reciente en Descargas")
     s.add_argument("--reasoning-effort", default="xhigh",
                    choices=["xhigh", "high", "medium", "low"])
     s.add_argument("--max-rounds", type=int, default=30)
