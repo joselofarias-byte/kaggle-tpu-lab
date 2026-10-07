@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decideEndpointMount, hasRecentServingEvidence } from './racer';
+import { decideEndpointMount, decideQueuedStatusReconcile, hasRecentServingEvidence } from './racer';
 
 const base = {
   status: 'RUNNING' as const,
@@ -106,6 +106,64 @@ describe('decideEndpointMount', () => {
   });
 });
 
+
+describe('decideQueuedStatusReconcile', () => {
+  it('keeps a serving endpoint when Kaggle still reports QUEUED', () => {
+    expect(decideQueuedStatusReconcile({
+      sessionStatus: 'RUNNING',
+      hasEndpoint: true,
+      recentServingEvidence: true,
+    })).toEqual({ kind: 'keep-serving' });
+  });
+
+  it('keeps serving evidence even if the session was already marked QUEUED', () => {
+    expect(decideQueuedStatusReconcile({
+      sessionStatus: 'QUEUED',
+      hasEndpoint: true,
+      recentServingEvidence: true,
+    })).toEqual({ kind: 'keep-serving' });
+  });
+
+  it('does not demote a race winner that still has fresh heartbeats', () => {
+    expect(decideQueuedStatusReconcile({
+      sessionStatus: 'WINNER',
+      hasEndpoint: true,
+      recentServingEvidence: true,
+    })).toEqual({ kind: 'keep-serving' });
+  });
+
+  it('clears a false READY when QUEUED and there is no fresh serving evidence', () => {
+    expect(decideQueuedStatusReconcile({
+      sessionStatus: 'RUNNING',
+      hasEndpoint: true,
+      recentServingEvidence: false,
+    })).toEqual({ kind: 'clear-false-ready' });
+  });
+
+  it('clears a leftover endpoint already marked QUEUED without serving evidence', () => {
+    expect(decideQueuedStatusReconcile({
+      sessionStatus: 'QUEUED',
+      hasEndpoint: true,
+      recentServingEvidence: false,
+    })).toEqual({ kind: 'clear-false-ready' });
+  });
+
+  it('demotes a non-queued session that has nothing mounted', () => {
+    expect(decideQueuedStatusReconcile({
+      sessionStatus: 'RUNNING',
+      hasEndpoint: false,
+      recentServingEvidence: false,
+    })).toEqual({ kind: 'clear-false-ready' });
+  });
+
+  it('leaves a genuine queue state untouched', () => {
+    expect(decideQueuedStatusReconcile({
+      sessionStatus: 'QUEUED',
+      hasEndpoint: false,
+      recentServingEvidence: false,
+    })).toEqual({ kind: 'stay-queued' });
+  });
+});
 
 describe('hasRecentServingEvidence', () => {
   const now = 1_800_000_000_000;
