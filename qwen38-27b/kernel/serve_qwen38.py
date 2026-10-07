@@ -460,8 +460,9 @@ else:
 
 # ---------------- 3. weights ----------------
 banner(3, "Model weights", "55 GB bf16 safetensors")
-weights_slug = CFG["weights_dataset"].split("/")[-1]
-model_path = find_input(weights_slug)
+weights_dataset = CFG.get("weights_dataset") or ""
+weights_slug = weights_dataset.split("/")[-1] if weights_dataset else ""
+model_path = find_input(weights_slug) if weights_slug else None
 if model_path and os.path.exists(os.path.join(model_path, "config.json")):
     publish("weights-mounted", path=model_path)
 else:
