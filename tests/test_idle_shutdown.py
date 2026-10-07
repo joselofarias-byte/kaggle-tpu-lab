@@ -112,3 +112,46 @@ class IdleShutdownTests(unittest.IsolatedAsyncioTestCase):
             self.fail("request must not start after shutdown is claimed")
         sent = await self.call(self.scope(), forbidden)
         self.assertEqual(sent[0]["status"], 503)
+
+class WatchdogCleanupTests(unittest.TestCase):
+    def run_watchdog(self, cleanup_failure=False):
+        import threading
+        tree = ast.parse(KERNEL.read_text())
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "idle_watchdog")
+        events = []
+        server = types.SimpleNamespace(poll=lambda: None)
+        tunnel = types.SimpleNamespace(
+            poll=lambda: None, terminate=lambda: events.append("tunnel-terminate"),
+            wait=lambda **kw: events.append("tunnel-wait"), kill=lambda: events.append("tunnel-kill"))
+        def stop_server(process):
+            events.append("server-stop")
+            if cleanup_failure:
+                raise RuntimeError("cleanup failed")
+        def exit_kernel(code):
+            events.append(("exit", code))
+            raise SystemExit(code)
+        namespace = {
+            "CFG": {"idle_timeout_min": 30}, "server": server, "tunnel": tunnel,
+            "time": types.SimpleNamespace(sleep=lambda seconds: None),
+            "idle_activity": types.SimpleNamespace(claim_idle_shutdown=lambda seconds: True),
+            "idle_shutdown_requested": threading.Event(), "log": lambda *args: None,
+            "stop_server": stop_server, "publish": lambda phase, **kw: events.append((phase, kw["reason"])),
+            "_raw": types.SimpleNamespace(flush=lambda: events.append("flush")),
+            "os": types.SimpleNamespace(_exit=exit_kernel),
+        }
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(KERNEL), "exec"), namespace)
+        with self.assertRaises(SystemExit) as exc:
+            namespace["idle_watchdog"]()
+        self.assertEqual(exc.exception.code, 0)
+        self.assertTrue(namespace["idle_shutdown_requested"].is_set())
+        self.assertIn(("auto-shutdown", "idle-timeout"), events)
+        self.assertEqual(events[-1], ("exit", 0))
+        return events
+
+    def test_watchdog_stops_server_and_tunnel_before_kernel_exit(self):
+        events = self.run_watchdog()
+        self.assertLess(events.index("server-stop"), events.index("tunnel-terminate"))
+        self.assertLess(events.index("tunnel-wait"), events.index(("exit", 0)))
+
+    def test_cleanup_error_still_exits_kernel(self):
+        self.run_watchdog(cleanup_failure=True)
