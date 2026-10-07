@@ -873,42 +873,109 @@ def _pick_audit_instructions(explicit=None):
     )
 
 
-def _wait_for_public_endpoint(kernel, topic, timeout_s=2100):
-    """Wait until this launch publishes a real endpoint; fail fast on terminal states."""
-    started = time.time()
-    saw_ready_without_endpoint = False
+def _wait_for_public_endpoint(kernel, topic, start_timeout_s=2100, queue_timeout_s=7200):
+    """
+    Wait for a usable public endpoint.
+
+    QUEUED time is tracked separately and does not consume the Qwen startup timeout.
+    The startup timeout begins only after Kaggle reports RUNNING.
+    """
+    queue_started = time.time()
+    running_started = None
     last_notice = 0
-    while time.time() - started < timeout_s:
-        events = read_events(topic, int(started) - 120)
-        for _, ev in reversed(events):
-            if ev.get("phase") == "ready":
-                if ev.get("endpoint"):
-                    return ev
-                saw_ready_without_endpoint = True
-                break
-            if ev.get("phase") in ("failed", "auto-shutdown", "stopped"):
-                return None
+    last_status = None
+    last_phase = None
 
-        status, _ = _kernel_status(kernel)
-        if status in ("ERROR", "CANCELACKNOWLEDGED", "COMPLETE"):
-            return None
+    phase_labels = {
+        "install": "PREPARANDO ENTORNO",
+        "installed": "ENTORNO LISTO",
+        "cache-restored": "CACHE XLA RESTAURADA",
+        "weights-mounted": "PESOS MONTADOS",
+        "weights-download": "DESCARGANDO PESOS",
+        "weights-downloaded": "PESOS DESCARGADOS",
+        "server-launch": "INICIANDO QWEN",
+        "loading": "CARGANDO QWEN EN TPU",
+        "compiling": "COMPILANDO GRAFICOS XLA",
+        "warmed": "QWEN CALENTADO",
+        "tunnel-url": "TUNEL PUBLICO RESERVADO",
+        "tunnel-failed": "FALLO EL TUNEL PUBLICO",
+        "serving": "SERVIDOR QWEN SALUDABLE",
+        "ready": "QWEN LISTO",
+    }
 
+    while True:
         now = time.time()
-        if now - last_notice >= 60:
-            elapsed_min = int((now - started) // 60)
-            if saw_ready_without_endpoint:
-                say("Qwen esta listo dentro de Kaggle, pero el tunel publico no entrego URL.")
-            else:
-                say(f"Esperando endpoint publico... {elapsed_min} min")
-            last_notice = now
+        status, _ = _kernel_status(kernel)
+
+        if status != last_status:
+            if status == "QUEUED":
+                say("TPU EN COLA: esperando que Kaggle asigne una v5e-8. Este tiempo no cuenta como arranque.")
+            elif status == "RUNNING":
+                if running_started is None:
+                    running_started = now
+                say("TPU ASIGNADA: comienza ahora el tiempo de arranque de Qwen.")
+            elif status not in ("UNKNOWN",):
+                say(f"Estado Kaggle: {status}")
+            last_status = status
+
+        if status in ("ERROR", "CANCELACKNOWLEDGED", "COMPLETE"):
+            return None, f"kernel-{status.lower()}"
+
+        if status == "QUEUED":
+            queued_s = now - queue_started
+            if queue_timeout_s > 0 and queued_s >= queue_timeout_s:
+                return None, "queue-timeout"
+            if now - last_notice >= 60:
+                say(f"TPU EN COLA... {int(queued_s // 60)} min")
+                last_notice = now
+            time.sleep(10)
+            continue
+
+        if status == "RUNNING" and running_started is None:
+            running_started = now
+            say("TPU ASIGNADA: comienza ahora el tiempo de arranque de Qwen.")
+
+        events_since = int((running_started or queue_started) - 120)
+        events = read_events(topic, events_since)
+        for _, ev in reversed(events):
+            phase = ev.get("phase")
+            if phase == "ready" and ev.get("endpoint"):
+                say("ENDPOINT PUBLICO LISTO.")
+                return ev, None
+            if phase in ("failed", "auto-shutdown", "stopped"):
+                return None, f"event-{phase}"
+
+        if events:
+            latest = events[-1][1]
+            phase = latest.get("phase")
+            if phase and phase != last_phase:
+                label = phase_labels.get(phase)
+                if label:
+                    if phase == "tunnel-failed":
+                        say(f"{label}: Qwen esta vivo dentro de Kaggle, pero aun no hay URL utilizable.")
+                    else:
+                        say(label)
+                last_phase = phase
+
+        if status == "RUNNING":
+            run_s = now - running_started
+            if run_s >= start_timeout_s:
+                return None, "startup-timeout"
+            if now - last_notice >= 60:
+                say(f"QWEN ARRANCANDO... {int(run_s // 60)} min desde que Kaggle asigno la TPU")
+                last_notice = now
+        else:
+            if now - last_notice >= 60:
+                say(f"Esperando estado RUNNING de Kaggle... estado actual: {status}")
+                last_notice = now
+
         time.sleep(10)
-    return None
 
 
 def cmd_auto_audit(args):
     """
     One-touch flow:
-      reuse/start Qwen -> wait for public endpoint -> audit repo using Gwen.md -> stop TPU.
+      reuse/start Qwen -> wait through Kaggle queue -> start timer on RUNNING -> audit repo -> stop TPU.
     """
     _install_qwen_audit_shortcut()
     instructions = _pick_audit_instructions(args.instructions)
@@ -959,9 +1026,18 @@ def cmd_auto_audit(args):
     say("Cuando termine la auditoria, la TPU se apagara automaticamente.")
 
     try:
-        ready = _wait_for_public_endpoint(st["kernel"], st["topic"], timeout_s=args.start_timeout)
+        ready, wait_reason = _wait_for_public_endpoint(
+            st["kernel"],
+            st["topic"],
+            start_timeout_s=args.start_timeout,
+            queue_timeout_s=args.queue_timeout,
+        )
         if not ready:
-            sys.exit("Qwen no obtuvo un endpoint publico utilizable. La TPU se apagara para no gastar cuota.")
+            if wait_reason == "queue-timeout":
+                sys.exit("Kaggle supero el limite de espera en cola. La sesion se cancelara automaticamente.")
+            if wait_reason == "startup-timeout":
+                sys.exit("Qwen supero el limite de arranque DESPUES de recibir la TPU. La sesion se apagara automaticamente.")
+            sys.exit(f"Qwen no obtuvo un endpoint publico utilizable ({wait_reason}). La sesion se apagara automaticamente.")
 
         if child and child.poll() is None:
             child.send_signal(signal.SIGINT)
@@ -1086,7 +1162,9 @@ def main():
     s.add_argument("--timeout", type=int, default=900,
                    help="timeout por llamada al modelo")
     s.add_argument("--start-timeout", type=int, default=2100,
-                   help="maximo de segundos para esperar el endpoint")
+                   help="maximo de segundos para arrancar Qwen, contados solo desde RUNNING")
+    s.add_argument("--queue-timeout", type=int, default=7200,
+                   help="maximo de segundos en cola de Kaggle; no consume el timeout de arranque")
     s.add_argument("--keep-running", action="store_true",
                    help="no apagar la TPU al terminar")
     s.set_defaults(fn=cmd_auto_audit)
