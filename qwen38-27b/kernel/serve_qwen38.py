@@ -960,6 +960,7 @@ publish("ready", endpoint=(f"{url}/v1" if url else None), api_key=CFG["api_key"]
 
 # Arm only after READY; polling and heartbeats do not count as work.
 idle_activity.arm()
+idle_shutdown_requested = threading.Event()
 def idle_watchdog():
     timeout = CFG["idle_timeout_min"] * 60
     if timeout <= 0:
@@ -967,19 +968,24 @@ def idle_watchdog():
     while server.poll() is None:
         time.sleep(5)
         if idle_activity.claim_idle_shutdown(timeout):
+            idle_shutdown_requested.set()
             log(f"   Apagando TPU: {CFG['idle_timeout_min']} min sin solicitudes de inferencia.")
-            stop_server(server)
-            if tunnel is not None and tunnel.poll() is None:
-                tunnel.terminate()
-                try:
-                    tunnel.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    tunnel.kill()
-                    tunnel.wait(timeout=10)
-            publish("auto-shutdown", reason="idle-timeout", idle_timeout_min=CFG["idle_timeout_min"])
-            _raw.flush()
-            # End the kernel even if the main thread is blocked on a warm-up HTTP request.
-            os._exit(0)
+            try:
+                stop_server(server)
+                if tunnel is not None and tunnel.poll() is None:
+                    tunnel.terminate()
+                    try:
+                        tunnel.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        tunnel.kill()
+                        tunnel.wait(timeout=10)
+            except Exception as exc:
+                log("   Error durante limpieza; el kernel igualmente terminara:", type(exc).__name__)
+            finally:
+                publish("auto-shutdown", reason="idle-timeout", idle_timeout_min=CFG["idle_timeout_min"])
+                _raw.flush()
+                # End the kernel even if the main thread is blocked on warm-up.
+                os._exit(0)
 threading.Thread(target=idle_watchdog, daemon=True).start()
 
 if CFG["fast_start"]:
@@ -993,6 +999,9 @@ self_test(CFG)
 t_serve = time.time()
 while time.time() - t_serve < CFG["keepalive_min"] * 60:
     time.sleep(120)
+    if idle_shutdown_requested.is_set():
+        while True:
+            time.sleep(1)  # watchdog finishes cleanup and exits the kernel
     if server.poll() is not None:
         server_died(server, "stopped", reason="server-exit")
     up = int((time.time() - t_serve) / 60)
