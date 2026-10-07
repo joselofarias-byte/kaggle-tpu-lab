@@ -7,13 +7,14 @@ class TunnelUrlTests(unittest.TestCase):
     def setUp(self):
         root = Path(__file__).resolve().parents[1]
         tree = ast.parse((root / "qwen38-27b/kernel/serve_qwen38.py").read_text())
-        pattern = next(ast.literal_eval(n.value.args[0]) for n in ast.walk(tree)
-                       if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
-                       and isinstance(n.value.func, ast.Attribute)
-                       and n.value.func.attr == "compile" and n.value.args
-                       and isinstance(n.value.args[0], ast.Constant)
-                       and "trycloudflare" in str(n.value.args[0].value))
-        self.pattern = re.compile(pattern)
+        patterns = [ast.literal_eval(n.value.args[0]) for n in ast.walk(tree)
+                    if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+                    and isinstance(n.value.func, ast.Attribute)
+                    and n.value.func.attr == "compile" and n.value.args
+                    and isinstance(n.value.args[0], ast.Constant)
+                    and "trycloudflare" in str(n.value.args[0].value)]
+        self.patterns = [re.compile(pattern) for pattern in patterns]
+        self.pattern = self.patterns[0]
 
     def test_extract_real_quick_tunnel_url_from_log(self):
         url = "https://quiet-field-123.trycloudflare.com"
@@ -23,6 +24,15 @@ class TunnelUrlTests(unittest.TestCase):
 
     def test_dots_are_literal(self):
         self.assertIsNone(self.pattern.search("https://quiet-fieldXtrycloudflareYcom"))
+
+    def test_every_quick_tunnel_extractor_accepts_real_url(self):
+        url = "https://quiet-field-123.trycloudflare.com"
+        self.assertGreaterEqual(len(self.patterns), 2)
+        for pattern in self.patterns:
+            with self.subTest(pattern=pattern.pattern):
+                match = pattern.search("INF | " + url + " |")
+                self.assertIsNotNone(match)
+                self.assertEqual(match.group(0), url)
 
 class TunnelRecoveryRegressionTests(unittest.TestCase):
     def setUp(self):
