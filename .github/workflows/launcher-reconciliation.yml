@@ -17,3 +17,5 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_idle_shutdown.py' -v
       - name: Session lifecycle regression tests
         run: python -m unittest discover -s tests -p 'test_launcher_reconciliation.py' -v
+      - name: Quick tunnel URL regression
+        run: python -m unittest discover -s tests -p 'test_tunnel_url.py' -v
