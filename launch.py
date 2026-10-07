@@ -15,8 +15,10 @@ import argparse
 import base64
 import io
 import json
+import os
 import re
 import secrets
+import signal
 import shutil
 import subprocess
 import sys
@@ -474,7 +476,7 @@ def cmd_repo_audit(args):
                   if ev.get("phase") == "ready" and ev.get("endpoint")), None)
     if not ready:
         sys.exit("No hay endpoint publico disponible. Inicia Qwen y confirma una URL real "
-                 "con \`python launch.py status\`.")
+                 "con `python launch.py status`.")
 
     root = Path(args.repo).expanduser().resolve()
     if not root.is_dir():
@@ -801,6 +803,194 @@ def cmd_repo_audit(args):
     print(final_text)
     say(f"Informe guardado en {out}")
 
+
+def _kernel_status(kernel):
+    r = kaggle("kernels", "status", kernel)
+    out = (r.stdout or "") + (r.stderr or "")
+    m = re.search(r'"KernelWorkerStatus\.(\w+)"', out)
+    return (m.group(1) if m else "UNKNOWN"), out.strip()
+
+
+def _install_qwen_audit_shortcut():
+    """Install a tiny Termux command so future audits are just: qwen-audit."""
+    prefix = os.environ.get("PREFIX")
+    if not prefix:
+        return
+    bindir = Path(prefix) / "bin"
+    try:
+        bindir.mkdir(parents=True, exist_ok=True)
+        target = bindir / "qwen-audit"
+        script = (
+            "#!/data/data/com.termux/files/usr/bin/bash\n"
+            'exec python "$HOME/kaggle-tpu-lab/launch.py" auto-audit "$@"\n'
+        )
+        if not target.exists() or target.read_text(errors="ignore") != script:
+            target.write_text(script)
+            target.chmod(0o755)
+    except Exception as e:
+        say(f"AVISO: no pude instalar el comando corto qwen-audit: {e}")
+
+
+def _pick_audit_instructions(explicit=None):
+    if explicit:
+        p = Path(explicit).expanduser()
+        if not p.is_file():
+            sys.exit(f"No existe el archivo de instrucciones: {p}")
+        return p
+
+    downloads = Path.home() / "storage" / "downloads"
+    if not downloads.is_dir():
+        sys.exit(f"No existe la carpeta de Descargas esperada: {downloads}")
+
+    # Preferred one-touch convention: exactly Gwen.md in Downloads.
+    exact = [p for p in downloads.iterdir()
+             if p.is_file() and p.name.lower() == "gwen.md"]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        sys.exit("Hay mas de un Gwen.md en Descargas; deja uno solo.")
+
+    # Compatibility with the audit files already generated before adopting Gwen.md.
+    fallback = []
+    for p in downloads.iterdir():
+        if not p.is_file():
+            continue
+        low = p.name.lower()
+        if (low.startswith("prompt_qwen_auditoria_seguridad_9router-go")
+                and low.endswith(".md")):
+            fallback.append(p)
+    if fallback:
+        fallback.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        say(f"No encontre Gwen.md; usare automaticamente el mas reciente: {fallback[0].name}")
+        return fallback[0]
+
+    sys.exit(
+        "No encontre ~/storage/downloads/Gwen.md ni un prompt_qwen_auditoria_seguridad_9router-go*.md."
+    )
+
+
+def _wait_for_public_endpoint(kernel, topic, timeout_s=2100):
+    """Wait until this launch publishes a real endpoint; fail fast on terminal states."""
+    started = time.time()
+    saw_ready_without_endpoint = False
+    last_notice = 0
+    while time.time() - started < timeout_s:
+        events = read_events(topic, int(started) - 120)
+        for _, ev in reversed(events):
+            if ev.get("phase") == "ready":
+                if ev.get("endpoint"):
+                    return ev
+                saw_ready_without_endpoint = True
+                break
+            if ev.get("phase") in ("failed", "auto-shutdown", "stopped"):
+                return None
+
+        status, _ = _kernel_status(kernel)
+        if status in ("ERROR", "CANCELACKNOWLEDGED", "COMPLETE"):
+            return None
+
+        now = time.time()
+        if now - last_notice >= 60:
+            elapsed_min = int((now - started) // 60)
+            if saw_ready_without_endpoint:
+                say("Qwen esta listo dentro de Kaggle, pero el tunel publico no entrego URL.")
+            else:
+                say(f"Esperando endpoint publico... {elapsed_min} min")
+            last_notice = now
+        time.sleep(10)
+    return None
+
+
+def cmd_auto_audit(args):
+    """
+    One-touch flow:
+      reuse/start Qwen -> wait for public endpoint -> audit repo using Gwen.md -> stop TPU.
+    """
+    _install_qwen_audit_shortcut()
+    instructions = _pick_audit_instructions(args.instructions)
+    repo = Path(args.repo).expanduser().resolve()
+    if not repo.is_dir():
+        sys.exit(f"No existe el repositorio: {repo}")
+
+    check_auth()
+    active = False
+    st = None
+    child = None
+
+    if STATE_FILE.exists():
+        try:
+            st = load_state()
+            status, _ = _kernel_status(st["kernel"])
+            active = status in ("QUEUED", "RUNNING")
+        except Exception:
+            active = False
+
+    if active:
+        say(f"Reutilizando la instancia actual: {st['kernel']}")
+    else:
+        say("No hay una instancia activa. Inicio Qwen automaticamente en modo rapido/texto.")
+        cmd = [sys.executable, str(HERE / "launch.py"), "serve", "--fast-start", "--text-only"]
+        child = subprocess.Popen(cmd, cwd=str(HERE))
+        deadline = time.time() + 120
+        old_topic = st.get("topic") if isinstance(st, dict) else None
+        while time.time() < deadline:
+            if STATE_FILE.exists():
+                try:
+                    candidate = load_state()
+                    if candidate.get("topic") and candidate.get("topic") != old_topic:
+                        st = candidate
+                        break
+                except Exception:
+                    pass
+            if child.poll() is not None:
+                sys.exit("El lanzador termino antes de crear la instancia.")
+            time.sleep(2)
+        if not st or not st.get("topic"):
+            if child and child.poll() is None:
+                child.send_signal(signal.SIGINT)
+            sys.exit("No se pudo obtener el estado de la nueva instancia.")
+
+    say(f"Instrucciones: {instructions.name}")
+    say(f"Repositorio: {repo}")
+    say("Cuando termine la auditoria, la TPU se apagara automaticamente.")
+
+    try:
+        ready = _wait_for_public_endpoint(st["kernel"], st["topic"], timeout_s=args.start_timeout)
+        if not ready:
+            sys.exit("Qwen no obtuvo un endpoint publico utilizable. La TPU se apagara para no gastar cuota.")
+
+        if child and child.poll() is None:
+            child.send_signal(signal.SIGINT)
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.terminate()
+
+        say(f"Endpoint listo. Comienza la auditoria con {ready.get('model', 'Qwen')}.")
+        audit_args = argparse.Namespace(
+            repo=str(repo),
+            instructions=str(instructions),
+            reasoning_effort=args.reasoning_effort,
+            max_rounds=args.max_rounds,
+            timeout=args.timeout,
+        )
+        cmd_repo_audit(audit_args)
+    finally:
+        if not args.keep_running:
+            try:
+                current = load_state()
+                status, _ = _kernel_status(current["kernel"])
+                if status in ("QUEUED", "RUNNING"):
+                    say("Auditoria finalizada. Apagando la TPU automaticamente...")
+                    cmd_stop(argparse.Namespace())
+                else:
+                    say(f"La instancia ya no esta activa (estado {status}).")
+            except Exception as e:
+                say(f"AVISO: no pude confirmar/apagar la TPU automaticamente: {e}")
+        else:
+            say("TPU dejada encendida por --keep-running.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -880,6 +1070,22 @@ def main():
     s.add_argument("--timeout", type=int, default=900,
                    help="timeout por llamada HTTP en segundos")
     s.set_defaults(fn=cmd_repo_audit)
+
+    s = sub.add_parser("auto-audit", help="flujo de un toque: iniciar/reusar Qwen, auditar y apagar TPU")
+    s.add_argument("--repo", default=str(Path.home() / "9router-license-test"),
+                   help="repositorio a auditar (default: ~/9router-license-test)")
+    s.add_argument("--instructions",
+                   help="archivo de instrucciones; por defecto usa ~/storage/downloads/Gwen.md")
+    s.add_argument("--reasoning-effort", default="xhigh",
+                   choices=["xhigh", "high", "medium", "low"])
+    s.add_argument("--max-rounds", type=int, default=30)
+    s.add_argument("--timeout", type=int, default=900,
+                   help="timeout por llamada al modelo")
+    s.add_argument("--start-timeout", type=int, default=2100,
+                   help="maximo de segundos para esperar el endpoint")
+    s.add_argument("--keep-running", action="store_true",
+                   help="no apagar la TPU al terminar")
+    s.set_defaults(fn=cmd_auto_audit)
 
     args = ap.parse_args()
     args.fn(args)
