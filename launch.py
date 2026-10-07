@@ -128,6 +128,8 @@ def cmd_serve(args):
             "reasoning_effort_default": args.reasoning_effort,
             "keepalive_min": args.keepalive_min,
             "weights_dataset": args.weights_dataset,
+            "hf_model_id": args.hf_model_id,
+            "served_model_name": args.served_model_name,
         }
         if args.no_tools:
             cfg["tool_call_parser"] = ""
@@ -139,7 +141,7 @@ def cmd_serve(args):
             cfg["fast_start"] = True
         if args.no_async_scheduling:
             cfg["async_scheduling"] = False
-        datasets = [args.weights_dataset, ENV_DATASET]
+        datasets = ([args.weights_dataset] if args.weights_dataset else []) + [ENV_DATASET]
     else:
         cfg = {
             "ntfy_topic": topic,
@@ -1098,7 +1100,12 @@ def main():
                         "(qwen38-27b: xhigh | medium | low; glm53-flash: low | medium | high, default low)")
     s.add_argument("--keepalive-min", type=int, default=480,
                    help="auto-shutdown after this many minutes of serving")
-    s.add_argument("--weights-dataset", default=WEIGHTS_DATASET)
+    s.add_argument("--weights-dataset", default=WEIGHTS_DATASET,
+                   help="Kaggle dataset with model weights; pass an empty string to download from Hugging Face")
+    s.add_argument("--hf-model-id", default="Qwen/Qwen3.8-27B",
+                   help="Hugging Face model id used when weights are not mounted")
+    s.add_argument("--served-model-name", default="qwen3.8-27b",
+                   help="model name exposed by the OpenAI-compatible API")
     s.add_argument("--no-tools", action="store_true",
                    help="disable tool-calling support")
     s.add_argument("--text-only", action="store_true",
