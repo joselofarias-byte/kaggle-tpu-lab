@@ -892,7 +892,7 @@ for _ in range(60):  # cloudflared download runs in the background from step 1
         break
     time.sleep(2)
 if CLOUDFLARED.exists():
-    pat = re.compile(r"https://[a-z0-9-]+\\.trycloudflare\\.com")
+    pat = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
     # Kaggle can block or degrade UDP/QUIC. Let cloudflared auto-negotiate first,
     # then retry explicitly over HTTP/2 if no quick-tunnel URL appears.
     for tunnel_args, label in (([], "auto"), (["--protocol", "http2"], "http2")):
