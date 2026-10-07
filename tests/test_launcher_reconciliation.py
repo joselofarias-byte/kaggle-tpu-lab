@@ -53,5 +53,27 @@ class EndpointWaitTests(unittest.TestCase):
                              (None, 'queue-timeout'))
 
 
+class AutoAuditAmbiguousSessionTests(unittest.TestCase):
+    def test_pending_or_unknown_status_never_starts_another_tpu(self):
+        from argparse import Namespace
+        import tempfile
+        from pathlib import Path
+        for status in ("UNKNOWN", "CANCEL_ACKNOWLEDGED", "CANCELACKNOWLEDGED",
+                       "CANCEL_REQUESTED", "CANCELREQUESTED"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as repo, \
+                 patch.object(launch, '_install_qwen_audit_shortcut'), \
+                 patch.object(launch, '_pick_audit_instructions', return_value=Path("prompt.md")), \
+                 patch.object(launch, 'check_auth'), \
+                 patch.object(launch, 'STATE_FILE') as state_file, \
+                 patch.object(launch, 'load_state', return_value={"kernel": "u/k", "topic": "session"}), \
+                 patch.object(launch, '_kernel_status', return_value=(status, "")), \
+                 patch.object(launch.subprocess, 'Popen') as start, \
+                 patch.object(launch, 'cmd_stop') as stop:
+                state_file.exists.return_value = True
+                with self.assertRaisesRegex(SystemExit, "No voy a iniciar otra TPU"):
+                    launch.cmd_auto_audit(Namespace(repo=repo, instructions=None))
+                start.assert_not_called()
+                stop.assert_not_called()
+
 if __name__ == '__main__':
     unittest.main()
