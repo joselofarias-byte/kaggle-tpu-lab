@@ -26,6 +26,17 @@ describe('parseKaggleStatusPayload', () => {
     expect(parseKaggleStatusPayload({ status: 'CANCELLED' }).status).toBe('CANCELLED');
   });
 
+  it('accepts protobuf numeric enums encoded as strings', () => {
+    expect(parseKaggleStatusPayload({ status: '0' }).status).toBe('QUEUED');
+    expect(parseKaggleStatusPayload({ status: '1' }).status).toBe('RUNNING');
+    expect(parseKaggleStatusPayload({ status: '2' }).status).toBe('COMPLETE');
+    expect(parseKaggleStatusPayload({ status: '3' }).status).toBe('ERROR');
+    expect(parseKaggleStatusPayload({ status: '4' }).status).toBe('UNKNOWN');
+    expect(parseKaggleStatusPayload({ status: '5' }).status).toBe('UNKNOWN');
+    expect(parseKaggleStatusPayload({ status: '6' }).status).toBe('QUEUED');
+    expect(parseKaggleStatusPayload({ status: 'KernelWorkerStatus.RUNNING' }).status).toBe('RUNNING');
+  });
+
   it('never invents CANCELLED for unknown payloads', () => {
     expect(parseKaggleStatusPayload({ workerStatus: 99 }).status).toBe('UNKNOWN');
     expect(parseKaggleStatusPayload({}).status).toBe('UNKNOWN');
