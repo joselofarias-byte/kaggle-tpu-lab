@@ -35,16 +35,18 @@ export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
 
   const statusRaw = raw.status !== undefined ? raw.status : raw.workerStatus;
   const s = String(statusRaw ?? '').trim().toUpperCase();
+  // Protobuf JSON can also encode enums as numeric strings ("0", "1", ...).
+  const statusCode = /^[0-6]$/.test(s) ? Number(s) : statusRaw;
 
   let status: KaggleStatusResponse['status'] = 'UNKNOWN';
   let detail: string | undefined;
 
-  if (s.includes('RUNNING') || statusRaw === 1) status = 'RUNNING';
-  else if (s.includes('COMPLETE') || statusRaw === 2) status = 'COMPLETE';
-  else if (s.includes('ERROR') || statusRaw === 3) status = 'ERROR';
+  if (s.includes('RUNNING') || statusCode === 1) status = 'RUNNING';
+  else if (s.includes('COMPLETE') || statusCode === 2) status = 'COMPLETE';
+  else if (s.includes('ERROR') || statusCode === 3) status = 'ERROR';
   else if (
-    statusRaw === 4 ||
-    statusRaw === 5 ||
+    statusCode === 4 ||
+    statusCode === 5 ||
     s.includes('CANCEL_REQUESTED') ||
     s.includes('CANCEL_ACKNOWLEDGED')
   ) {
@@ -54,8 +56,8 @@ export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
     status = 'UNKNOWN';
     detail = `Kaggle informó ${s || statusRaw}; esperando confirmación de la sesión`;
   } else if (s === 'CANCELLED' || s === 'CANCELED') status = 'CANCELLED';
-  else if (s.includes('QUEUE') || statusRaw === 0) status = 'QUEUED';
-  else if (s.includes('NEW_SCRIPT') || statusRaw === 6) status = 'QUEUED';
+  else if (s.includes('QUEUE') || statusCode === 0) status = 'QUEUED';
+  else if (s.includes('NEW_SCRIPT') || statusCode === 6) status = 'QUEUED';
 
   return {
     status,
