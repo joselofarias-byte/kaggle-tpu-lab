@@ -205,11 +205,12 @@ export const App: React.FC = () => {
       return { text: endpoints.length === 1 ? 'TPU lista' : `${endpoints.length} TPU listas`, cls: 'ready' };
     }
     const active = sessions.filter((s) => !s.done);
-    if (active.some((s) => s.status === 'QUEUED') && !active.some((s) => s.status === 'RUNNING' || s.status === 'WINNER')) {
-      return { text: 'En cola', cls: 'running' };
-    }
+    // An unconfirmed account must not be advertised as definitely queued.
     if (active.some((s) => s.status === 'UNKNOWN')) {
       return { text: 'Estado sin confirmar', cls: 'running' };
+    }
+    if (active.some((s) => s.status === 'QUEUED') && !active.some((s) => s.status === 'RUNNING' || s.status === 'WINNER')) {
+      return { text: 'En cola', cls: 'running' };
     }
     if (active.length > 0) {
       return { text: 'Iniciando', cls: 'running' };
