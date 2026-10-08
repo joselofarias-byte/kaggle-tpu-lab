@@ -22,7 +22,10 @@ export interface KaggleStatusResponse {
  * 0 QUEUED, 1 RUNNING, 2 COMPLETE, 3 ERROR,
  * 4 CANCEL_REQUESTED, 5 CANCEL_ACKNOWLEDGED, 6 NEW_SCRIPT.
  */
-export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
+export function parseKaggleStatusPayload(
+  rawInput: any,
+  allowProtobufDefaultQueued: boolean = false
+): KaggleStatusResponse {
   let raw: any = rawInput;
   if (typeof raw === 'string') {
     try { raw = JSON.parse(raw); } catch {
@@ -31,6 +34,14 @@ export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
   }
   if (!raw || typeof raw !== 'object') {
     return { status: 'UNKNOWN', detail: 'Respuesta de estado vacía o inválida' };
+  }
+
+  // Kaggle SDK's ApiGetKernelSessionStatusResponse has QUEUED (enum 0) as
+  // its implicit protobuf default. The JSON response may therefore be {}.
+  // Only apply this to successful replies from the exact status endpoint,
+  // never to arbitrary objects or failed HTTP calls.
+  if (allowProtobufDefaultQueued && !Array.isArray(raw) && Object.keys(raw).length === 0) {
+    return { status: 'QUEUED', rawStatus: 0, detail: 'Kaggle: QUEUED (valor predeterminado protobuf)' };
   }
 
   const statusRaw = raw.status !== undefined ? raw.status : raw.workerStatus;
@@ -272,7 +283,7 @@ export class KaggleApi {
       });
 
       if (res.status === 200) {
-        return parseKaggleStatusPayload(res.data);
+        return parseKaggleStatusPayload(res.data, true);
       }
 
       // Do not turn an HTTP/API problem into a fake terminal state.
