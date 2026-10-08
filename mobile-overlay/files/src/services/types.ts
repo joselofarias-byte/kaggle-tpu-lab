@@ -80,6 +80,7 @@ export interface RaceSession {
   raceGroupId?: string;
   endpoint?: LiveEndpoint;
   lastEvent?: NtfyEvent;
+  lastStatusProbeAt?: number; // epoch milliseconds; a probe is not a confirmed state
   events: { time: string; text: string; phase: string }[];
 }
 
