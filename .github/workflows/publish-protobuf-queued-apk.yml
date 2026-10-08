@@ -1,0 +1,49 @@
+name: Publish verified protobuf queue APK
+on:
+  push:
+    branches:
+      - fix/android-queue-observability-20261008
+    paths:
+      - .github/workflows/publish-protobuf-queued-apk.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Wait for tested APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run watch 37812973408 --repo "${{ github.repository }}" --exit-status
+
+      - name: Download and validate artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh run download 37812973408 --repo "${{ github.repository }}" --name kaggle-tpu-lab-es-v1.2.2-es3 --dir assets
+          (
+            cd assets
+            sha256sum --check kaggle-tpu-lab-es-v1.2.2-es3.sha256
+          )
+          test -s assets/kaggle-tpu-lab-es-v1.2.2-es3.apk
+          mv assets/kaggle-tpu-lab-es-v1.2.2-es3.apk assets/Kaggle-TPU-Lab-ES-v1.2.2-es3.apk
+
+      - name: Publish APK in GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create android-es-protobuf-queued-20261008 assets/Kaggle-TPU-Lab-ES-v1.2.2-es3.apk \
+            --repo "${{ github.repository }}" \
+            --target 4a92ec69710fc5514e1c93146cae0d71d6f89fd1 \
+            --title "Kaggle TPU Lab ES 1.2.2-es3 - estado QUEUED real" \
+            --notes "APK de prueba. Corrige el mapeo del valor predeterminado del enum QUEUED=0 de Kaggle (respuesta JSON {} HTTP 200), la reconciliacion de READY y la carrera multicuenta. Validada por GitHub Actions 37812973408. No acelera la asignacion de TPU en Kaggle. Se instala sobre la anterior con la misma firma; no reinicia kernels activos." \
+            --prerelease

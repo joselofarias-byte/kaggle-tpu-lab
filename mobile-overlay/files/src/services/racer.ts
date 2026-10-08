@@ -57,6 +57,14 @@ export function hasRecentServingEvidence(
   return ageSeconds <= maxAgeSeconds;
 }
 
+/** A stale slug-level QUEUED response cannot erase recent session-specific READY evidence. */
+export function shouldKeepReadyOnQueued(
+  session: Pick<RaceSession, 'lastEvent' | 'endpoint'>,
+  nowMs: number = Date.now()
+): boolean {
+  return session.endpoint?.status === 'READY' && hasRecentServingEvidence(session, nowMs);
+}
+
 function recoveryEventText(ev: NtfyEvent): string {
   if (ev.phase === 'heartbeat') {
     return `TPU activa confirmada por heartbeat${ev.up_min ? ` (${ev.up_min} min)` : ''}.`;
@@ -348,6 +356,7 @@ export class InstanceManager {
     for (const session of active) {
       try {
         const st = await new KaggleApi(session.token, session.username).getStatus(session.slug);
+        session.lastStatusProbeAt = Date.now();
         if (st.status === 'UNKNOWN') {
           // UNKNOWN is not a terminal state. API/network ambiguity must never
           // make us stop tracking a kernel that may still be consuming TPU quota.
@@ -362,7 +371,9 @@ export class InstanceManager {
               text: `No se pudo confirmar el estado en Kaggle (${detail}). Se mantiene el seguimiento y no se da la sesión por terminada.`,
             });
           }
-          if (session.status === 'IDLE') session.status = 'UNKNOWN';
+          // A failed/ambiguous status probe is not proof that the job is queued.
+          // Do not hide fresh READY evidence or discard any known endpoint.
+          if (!hasRecentServingEvidence(session)) session.status = 'UNKNOWN';
           session.done = false;
           continue;
         }
@@ -373,9 +384,22 @@ export class InstanceManager {
             phase: 'running',
             text: `[${session.username || session.accountName}] TPU asignada; preparando el entorno...`,
           });
-          if (session.raceGroupId) this.checkRaceWinner(session);
+          // RUNNING means Kaggle allocated a worker, not that inference is ready.
+          // The multicuenta winner is elected only after an ntfy READY/serving
+          // event with a usable endpoint (handleNtfyEvent).
         } else if (st.status === 'QUEUED') {
-          if (session.status !== 'QUEUED') {
+          if (shouldKeepReadyOnQueued(session)) {
+            // Kaggle's slug-level queue signal can lag an already-serving kernel.
+            if (session.status !== 'WINNER') session.status = 'RUNNING';
+            const last = session.events[session.events.length - 1];
+            if (!last || last.phase !== 'sync-conflict') {
+              session.events.push({
+                time: new Date().toLocaleTimeString(),
+                phase: 'sync-conflict',
+                text: 'Kaggle sigue mostrando cola, pero la TPU informó READY recientemente; se conserva el endpoint.',
+              });
+            }
+          } else if (session.status !== 'QUEUED') {
             session.status = 'QUEUED';
             // While queued, clear any false ready endpoint
             session.endpoint = undefined;
@@ -504,6 +528,7 @@ export class InstanceManager {
     for (const slug of slugs) {
       try {
         const st = await api.getStatus(slug);
+        if (session) session.lastStatusProbeAt = Date.now();
         if (st.status === 'UNKNOWN') {
           sawUnknown = true;
           continue;
@@ -537,9 +562,13 @@ export class InstanceManager {
             session = currentSession;
           }
           currentSession.slug = slug;
-          currentSession.status = st.status;
+          currentSession.lastStatusProbeAt = Date.now();
+          const preserveReady = st.status === 'QUEUED' && shouldKeepReadyOnQueued(currentSession);
+          currentSession.status = preserveReady
+            ? (currentSession.status === 'WINNER' ? 'WINNER' : 'RUNNING')
+            : st.status;
           currentSession.done = false;
-          if (st.status === 'QUEUED') {
+          if (st.status === 'QUEUED' && !preserveReady) {
             currentSession.endpoint = undefined;
             this.endpoints.delete(account.id);
           }
@@ -548,8 +577,9 @@ export class InstanceManager {
           if (apiKey) currentSession.apiKey = apiKey;
           if (st.status === 'RUNNING') currentSession.seenBoot = true;
 
-          const statusText =
-            st.status === 'QUEUED' ? 'Queued (QUEUED)' : '🟢 TPU Instance Running';
+          const statusText = preserveReady
+            ? 'TPU lista; Kaggle muestra un estado de cola atrasado'
+            : (st.status === 'QUEUED' ? 'En cola (confirmado por Kaggle)' : 'TPU en ejecución');
 
           currentSession.events.push({
             time: new Date().toLocaleTimeString(),
@@ -603,7 +633,7 @@ export class InstanceManager {
       } else if (session && sawUnknown && !session.done) {
         // Preserve the last confirmed state. Losing one status probe must not
         // detach the controller from a potentially live TPU.
-        if (session.status === 'IDLE') session.status = 'UNKNOWN';
+        if (!hasRecentServingEvidence(session)) session.status = 'UNKNOWN';
         session.done = false;
         const last = session.events[session.events.length - 1];
         if (!last || last.phase !== 'sync-unknown') {

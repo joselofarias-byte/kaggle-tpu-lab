@@ -417,12 +417,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                        <span>Última actualización ({session.model || config.model})</span>
+                        <span>Último evento ({session.model || config.model})</span>
                         <span>{session.events[session.events.length - 1].time}</span>
                       </div>
                       <div style={{ color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
                         {session.events[session.events.length - 1].text}
                       </div>
+                      {session.lastStatusProbeAt && (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '8px' }}>
+                          Último intento de consulta a Kaggle: {new Date(session.lastStatusProbeAt).toLocaleTimeString('es-UY')}
+                          {session.status === 'UNKNOWN' ? ' · Sin confirmar' : ''}
+                        </div>
+                      )}
 
                       {/* Ready endpoint quick copy and entry */}
                       {session.endpoint && session.endpoint.status === 'READY' ? (

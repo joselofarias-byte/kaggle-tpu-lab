@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decideEndpointMount, hasRecentServingEvidence } from './racer';
+import { decideEndpointMount, hasRecentServingEvidence, shouldKeepReadyOnQueued } from './racer';
 
 const base = {
   status: 'RUNNING' as const,
@@ -142,5 +142,21 @@ describe('hasRecentServingEvidence', () => {
       now,
       900
     )).toBe(false);
+  });
+});
+
+describe('shouldKeepReadyOnQueued', () => {
+  const now = 1_800_000_000_000;
+  const recent = { phase: 'ready', rawTime: Math.floor(now / 1000) - 30 } as any;
+  const stale = { phase: 'heartbeat', rawTime: Math.floor(now / 1000) - 901 } as any;
+  const endpoint = { status: 'READY', baseUrl: 'https://example.test/v1' } as any;
+
+  it('preserves a live endpoint despite a stale Kaggle QUEUED status', () => {
+    expect(shouldKeepReadyOnQueued({ lastEvent: recent, endpoint }, now)).toBe(true);
+  });
+
+  it('does not preserve an endpoint with no recent serving evidence', () => {
+    expect(shouldKeepReadyOnQueued({ lastEvent: stale, endpoint }, now)).toBe(false);
+    expect(shouldKeepReadyOnQueued({ lastEvent: recent, endpoint: undefined }, now)).toBe(false);
   });
 });

@@ -22,7 +22,10 @@ export interface KaggleStatusResponse {
  * 0 QUEUED, 1 RUNNING, 2 COMPLETE, 3 ERROR,
  * 4 CANCEL_REQUESTED, 5 CANCEL_ACKNOWLEDGED, 6 NEW_SCRIPT.
  */
-export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
+export function parseKaggleStatusPayload(
+  rawInput: any,
+  allowProtobufDefaultQueued: boolean = false
+): KaggleStatusResponse {
   let raw: any = rawInput;
   if (typeof raw === 'string') {
     try { raw = JSON.parse(raw); } catch {
@@ -33,18 +36,28 @@ export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
     return { status: 'UNKNOWN', detail: 'Respuesta de estado vacía o inválida' };
   }
 
+  // Kaggle SDK's ApiGetKernelSessionStatusResponse has QUEUED (enum 0) as
+  // its implicit protobuf default. The JSON response may therefore be {}.
+  // Only apply this to successful replies from the exact status endpoint,
+  // never to arbitrary objects or failed HTTP calls.
+  if (allowProtobufDefaultQueued && !Array.isArray(raw) && Object.keys(raw).length === 0) {
+    return { status: 'QUEUED', rawStatus: 0, detail: 'Kaggle: QUEUED (valor predeterminado protobuf)' };
+  }
+
   const statusRaw = raw.status !== undefined ? raw.status : raw.workerStatus;
   const s = String(statusRaw ?? '').trim().toUpperCase();
+  // Protobuf JSON can also encode enums as numeric strings ("0", "1", ...).
+  const statusCode = /^[0-6]$/.test(s) ? Number(s) : statusRaw;
 
   let status: KaggleStatusResponse['status'] = 'UNKNOWN';
   let detail: string | undefined;
 
-  if (s.includes('RUNNING') || statusRaw === 1) status = 'RUNNING';
-  else if (s.includes('COMPLETE') || statusRaw === 2) status = 'COMPLETE';
-  else if (s.includes('ERROR') || statusRaw === 3) status = 'ERROR';
+  if (s.includes('RUNNING') || statusCode === 1) status = 'RUNNING';
+  else if (s.includes('COMPLETE') || statusCode === 2) status = 'COMPLETE';
+  else if (s.includes('ERROR') || statusCode === 3) status = 'ERROR';
   else if (
-    statusRaw === 4 ||
-    statusRaw === 5 ||
+    statusCode === 4 ||
+    statusCode === 5 ||
     s.includes('CANCEL_REQUESTED') ||
     s.includes('CANCEL_ACKNOWLEDGED')
   ) {
@@ -54,8 +67,8 @@ export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
     status = 'UNKNOWN';
     detail = `Kaggle informó ${s || statusRaw}; esperando confirmación de la sesión`;
   } else if (s === 'CANCELLED' || s === 'CANCELED') status = 'CANCELLED';
-  else if (s.includes('QUEUE') || statusRaw === 0) status = 'QUEUED';
-  else if (s.includes('NEW_SCRIPT') || statusRaw === 6) status = 'QUEUED';
+  else if (s.includes('QUEUE') || statusCode === 0) status = 'QUEUED';
+  else if (s.includes('NEW_SCRIPT') || statusCode === 6) status = 'QUEUED';
 
   return {
     status,
@@ -270,7 +283,7 @@ export class KaggleApi {
       });
 
       if (res.status === 200) {
-        return parseKaggleStatusPayload(res.data);
+        return parseKaggleStatusPayload(res.data, true);
       }
 
       // Do not turn an HTTP/API problem into a fake terminal state.
