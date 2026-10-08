@@ -28,9 +28,9 @@ def load_state():
 def label(value):
     """Solo texto de estados y mensajes, nunca datos privados."""
     s = str(value or "")
-    s = re.sub(r"(?i)\\b(Bearer|Basic)\\s+\\S+", r"\\1 [oculto]", s)
-    s = re.sub(r"\\b(?:KGAT_|sk-|glm-)[A-Za-z0-9_-]{6,}", "[secreto oculto]", s)
-    s = re.sub(r"https?://\\S+", "[URL oculta]", s)
+    s = re.sub(r"(?i)\b(Bearer|Basic)\s+\S+", r"\1 [oculto]", s)
+    s = re.sub(r"\b(?:KGAT_|sk-|glm-)[A-Za-z0-9_-]{6,}", "[secreto oculto]", s)
+    s = re.sub(r"https?://\S+", "[URL oculta]", s)
     return s[:200]
 
 def kaggle_sdk_status(kernel):
@@ -61,8 +61,8 @@ def kaggle_cli_status(kernel):
     except OSError as exc:
         print("CLI Kaggle: no disponible (" + type(exc).__name__ + ").")
         return
-    out = (p.stdout or "") + "\\n" + (p.stderr or "")
-    status = re.search(r"KernelWorkerStatus\\.([A-Z_]+)", out)
+    out = (p.stdout or "") + "\n" + (p.stderr or "")
+    status = re.search(r"KernelWorkerStatus\.([A-Z_]+)", out)
     if status:
         print("CLI Kaggle:", status.group(1))
     else:
