@@ -105,24 +105,24 @@ jobs:
 
       - name: Package APK, checksum and source manifest
         run: |
-          cp mobile-src/android/app/build/outputs/apk/debug/app-debug.apk kaggle-tpu-lab-es-v1.2.1-es2.apk
-          sha256sum kaggle-tpu-lab-es-v1.2.1-es2.apk | tee kaggle-tpu-lab-es-v1.2.1-es2.sha256
+          cp mobile-src/android/app/build/outputs/apk/debug/app-debug.apk kaggle-tpu-lab-es-v1.2.2-es3.apk
+          sha256sum kaggle-tpu-lab-es-v1.2.2-es3.apk | tee kaggle-tpu-lab-es-v1.2.2-es3.sha256
           {
-            echo "app_version=1.2.1-es2"
+            echo "app_version=1.2.2-es3"
             echo "repo_commit=$GITHUB_SHA"
             printf "qwen_kernel_sha256="
             sha256sum qwen38-27b/kernel/serve_qwen38.py | awk '{print $1}'
             printf "glm_kernel_sha256="
             sha256sum glm53-flash/kernel/serve_glm53.py | awk '{print $1}'
-          } | tee kaggle-tpu-lab-es-v1.2.1-es2-build-info.txt
-          ls -lh kaggle-tpu-lab-es-v1.2.1-es2.apk
+          } | tee kaggle-tpu-lab-es-v1.2.2-es3-build-info.txt
+          ls -lh kaggle-tpu-lab-es-v1.2.2-es3.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kaggle-tpu-lab-es-v1.2.1-es2
+          name: kaggle-tpu-lab-es-v1.2.2-es3
           path: |
-            kaggle-tpu-lab-es-v1.2.1-es2.apk
-            kaggle-tpu-lab-es-v1.2.1-es2.sha256
-            kaggle-tpu-lab-es-v1.2.1-es2-build-info.txt
+            kaggle-tpu-lab-es-v1.2.2-es3.apk
+            kaggle-tpu-lab-es-v1.2.2-es3.sha256
+            kaggle-tpu-lab-es-v1.2.2-es3-build-info.txt
           retention-days: 14
