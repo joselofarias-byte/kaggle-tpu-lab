@@ -1,0 +1,39 @@
+name: Publish PR11 Android ES APK
+
+on:
+  push:
+    branches:
+      - fix/android-queue-observability-20261008
+    paths:
+      - .github/workflows/publish-pr11-apk.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch previously tested Android artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh run download 37808772077 --repo "${{ github.repository }}" --name kaggle-tpu-lab-es-v1.2.1-es2 --dir assets
+          test -s assets/kaggle-tpu-lab-es-v1.2.1-es2.apk
+          mv assets/kaggle-tpu-lab-es-v1.2.1-es2.apk assets/Kaggle-TPU-Lab-ES-PR11.apk
+          echo "e5a7461b5a2e3a7081e2c9d263d2f86613e443dff55fdc175988b2eaac5fc0ea  assets/Kaggle-TPU-Lab-ES-PR11.apk" | sha256sum -c -
+
+      - name: Publish direct-download prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create android-es-pr11-20261008 assets/Kaggle-TPU-Lab-ES-PR11.apk \
+            --repo "${{ github.repository }}" \
+            --target e533172ee1f03efa43fb8adbb702751d0b0bf2a3 \
+            --title "Kaggle TPU Lab ES - PR11 (prueba)" \
+            --notes "APK Android ES de prueba, GitHub Actions 37808772077: tests, TypeScript y Gradle PASS. Mejoras de estado de cola, reconciliacion READY y carrera multicuenta. No afecta sesiones Kaggle en ejecucion. SHA256: e5a7461b5a2e3a7081e2c9d263d2f86613e443dff55fdc175988b2eaac5fc0ea." \
+            --prerelease
