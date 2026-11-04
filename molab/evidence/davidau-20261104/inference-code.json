@@ -1,0 +1,42 @@
+{
+  "wall_seconds": 1.6023046489999615,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "def factorial(n):\n    if n < 0:\n        raise ValueError(\"n must be non-negative\")\n    result = 1\n    for i in range(2, n + 1):\n        result *= i\n    return result"
+        }
+      }
+    ],
+    "created": 1793833540,
+    "model": "/marimo/davidau-gguf-lab/models/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-Q8_0.gguf",
+    "system_fingerprint": "b12110-cd959bae9",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 53,
+      "prompt_tokens": 50,
+      "total_tokens": 103,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "id": "chatcmpl-1alxwgb6awluhaKfNKK1ui2oXZtIQS7j",
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 50,
+      "prompt_ms": 205.148,
+      "prompt_per_token_ms": 4.1029599999999995,
+      "prompt_per_second": 243.7264803946419,
+      "predicted_n": 53,
+      "predicted_ms": 1394.063,
+      "predicted_per_token_ms": 26.808903846153846,
+      "predicted_per_second": 37.3010401968921
+    }
+  },
+  "gpu_total_used_peak_mib": 29286,
+  "gpu_memory_note": "Total GPU usage sampled every 250 ms during the request, including other resident processes; not allocator tensor peak.",
+  "gpu_after": "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 29286 MiB"
+}

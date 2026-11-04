@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "cases": {
+    "0": 1,
+    "1": 1,
+    "5": 120,
+    "10": 3628800,
+    "-1": "ValueError"
+  },
+  "restricted_builtins": [
+    "range",
+    "ValueError"
+  ]
+}
