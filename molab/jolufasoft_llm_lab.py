@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["marimo>=0.17", "torch>=2.5", "transformers>=4.51,<5", "accelerate>=1.0", "huggingface-hub>=0.30", "safetensors"]
+# dependencies = ["marimo>=0.17", "torch>=2.8", "transformers==4.57.6", "accelerate>=1.0", "huggingface-hub>=0.34,<1", "safetensors", "kernels>=0.9,<0.12"]
 # ///
 import marimo
 
@@ -14,7 +14,71 @@ def _():
     import torch
     import gc
     import time
-    return mo, torch, gc, time
+
+    class LLMRuntime:
+        """Own exactly one model; repeated load clicks reuse it."""
+        def __init__(self):
+            self.model = None
+            self.tokenizer = None
+            self.key = None
+            self.load_seconds = None
+
+        def load(self, model_id, dtype, trust_remote_code=False):
+            key = (model_id, str(dtype), trust_remote_code)
+            if self.model is not None and self.key == key:
+                return
+            self.model = None
+            self.tokenizer = None
+            self.key = None
+            gc.collect()
+            torch.cuda.empty_cache()
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            if model_id.startswith("openai/gpt-oss"):
+                from transformers.utils import is_kernels_available, is_triton_available
+                if not is_kernels_available() or not is_triton_available():
+                    raise RuntimeError("MXFP4 requiere kernels y Triton. Instalá dependencias y reiniciá el kernel; fallback BF16 bloqueado.")
+            t0 = time.monotonic()
+            self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_id, dtype=dtype, device_map="cuda",
+                low_cpu_mem_usage=True, trust_remote_code=trust_remote_code,
+            )
+            self.model.eval()
+            torch.cuda.synchronize()
+            self.load_seconds = time.monotonic() - t0
+            self.key = key
+
+        def generate(self, messages, max_new_tokens, temperature):
+            if self.model is None:
+                raise RuntimeError("Cargá un modelo primero.")
+            try:
+                rendered = self.tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
+                )
+            except (ValueError, TypeError, AttributeError):
+                rendered = "\n".join(f"{m['role']}: {m['content']}" for m in messages) + "\nassistant:"
+            inputs = self.tokenizer(rendered, return_tensors="pt").to("cuda")
+            args = {"max_new_tokens": max_new_tokens, "do_sample": temperature > 0,
+                    "pad_token_id": self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id}
+            if temperature > 0:
+                args["temperature"] = temperature
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.synchronize()
+            t0 = time.monotonic()
+            with torch.inference_mode():
+                output = self.model.generate(**inputs, **args)
+            torch.cuda.synchronize()
+            seconds = time.monotonic() - t0
+            generated = output[0][inputs["input_ids"].shape[-1]:]
+            return {
+                "text": self.tokenizer.decode(generated, skip_special_tokens=True),
+                "tokens": len(generated), "seconds": seconds,
+                "tokens_per_second": len(generated) / max(seconds, 0.001),
+                "peak_vram_gib": torch.cuda.max_memory_allocated() / 2**30,
+            }
+
+    session = LLMRuntime()
+    return mo, torch, session
 
 
 @app.cell
@@ -31,7 +95,7 @@ def _(mo, torch):
 
 @app.cell
 def _(mo):
-    model_id = mo.ui.text(value="Qwen/Qwen3-8B", label="Repositorio de modelo (Hugging Face)", full_width=True)
+    model_id = mo.ui.text(value="Qwen/Qwen3-32B", label="Repositorio de modelo (Hugging Face)", full_width=True)
     precision = mo.ui.dropdown(options={"BF16 (recomendado)": "bf16", "FP16": "fp16", "Automático": "auto"}, value="BF16 (recomendado)", label="Precisión")
     remote = mo.ui.checkbox(value=False, label="Permitir código remoto del repositorio (solo fuentes confiables)")
     load = mo.ui.run_button(label="Cargar modelo en GPU")
@@ -40,31 +104,17 @@ def _(mo):
 
 
 @app.cell
-def _(mo, torch, gc, time, model_id, precision, remote, load):
+def _(mo, torch, session, model_id, precision, remote, load):
     mo.stop(not load.value, mo.md("Seleccioná un modelo y pulsá **Cargar modelo en GPU**."))
-    from transformers import AutoTokenizer, AutoModelForCausalLM
     if not torch.cuda.is_available():
-        raise RuntimeError("GPU no disponible: activala en Molab antes de cargar el modelo.")
+        raise RuntimeError("GPU CUDA no disponible.")
     chosen = model_id.value.strip()
     if not chosen or "/" not in chosen:
-        raise ValueError("Indicá un repositorio Hugging Face válido: propietario/modelo.")
-    gc.collect()
-    torch.cuda.empty_cache()
-    dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "auto": "auto"}[precision.value]
-    start = time.monotonic()
-    tokenizer = AutoTokenizer.from_pretrained(chosen, trust_remote_code=remote.value)
-    model = AutoModelForCausalLM.from_pretrained(
-        chosen,
-        torch_dtype=dtype,
-        device_map="auto",
-        low_cpu_mem_usage=True,
-        trust_remote_code=remote.value,
-    )
-    model.eval()
-    load_seconds = time.monotonic() - start
-    used_gib = torch.cuda.memory_allocated() / 2**30
-    mo.md(f"**Modelo cargado:** `{chosen}` — {load_seconds:.1f} s — {used_gib:.2f} GiB de VRAM asignada")
-    return tokenizer, model, chosen
+        raise ValueError("Indicá propietario/modelo.")
+    _dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "auto": "auto"}[precision.value]
+    session.load(chosen, _dtype, remote.value)
+    mo.md(f"**Modelo cargado:** {chosen} | {session.load_seconds:.2f} s | VRAM {torch.cuda.memory_allocated()/2**30:.3f} GiB | cuantizado={getattr(session.model, 'is_quantized', False)}")
+    return (chosen,)
 
 
 @app.cell
@@ -79,34 +129,17 @@ def _(mo):
 
 
 @app.cell
-def _(mo, torch, time, model, tokenizer, chosen, prompt, system, max_new, temp, run):
-    mo.stop(not run.value, mo.md("Pulsá **Generar respuesta** para ejecutar inferencia."))
-    messages = [{"role": "system", "content": system.value}, {"role": "user", "content": prompt.value}]
-    try:
-        rendered = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    except (ValueError, TypeError, AttributeError):
-        rendered = system.value + "\n\nUsuario: " + prompt.value + "\nAsistente:"
-    inputs = tokenizer(rendered, return_tensors="pt")
-    target = next(model.parameters()).device
-    inputs = {k: v.to(target) for k, v in inputs.items()}
-    generation_args = {
-        "max_new_tokens": max_new.value,
-        "do_sample": temp.value > 0,
-        "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
-    }
-    if temp.value > 0:
-        generation_args["temperature"] = temp.value
-    start = time.monotonic()
-    with torch.inference_mode():
-        output = model.generate(**inputs, **generation_args)
-    seconds = time.monotonic() - start
-    generated = output[0][inputs["input_ids"].shape[-1]:]
-    response = tokenizer.decode(generated, skip_special_tokens=True)
-    rate = len(generated) / max(seconds, 0.001)
+def _(mo, session, chosen, prompt, system, max_new, temp, run):
+    mo.stop(not run.value, mo.md("Pulsá **Generar respuesta**."))
+    mo.stop(session.key is None or session.key[0] != chosen, mo.md("Cargá primero el modelo seleccionado."))
+    _result = session.generate(
+        [{"role": "system", "content": system.value}, {"role": "user", "content": prompt.value}],
+        max_new.value, temp.value,
+    )
     mo.vstack([
         mo.md(f"### Respuesta — {chosen}"),
-        mo.md(response.replace("<", "&lt;")),
-        mo.md(f"**{len(generated)} tokens | {seconds:.1f} s | {rate:.1f} tok/s**"),
+        mo.md(_result["text"].replace("<", "&lt;")),
+        mo.md(f"**{_result['tokens']} tokens | {_result['seconds']:.3f} s | {_result['tokens_per_second']:.2f} tok/s | pico VRAM {_result['peak_vram_gib']:.3f} GiB**"),
     ])
     return
 

@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["marimo>=0.17", "torch>=2.5", "transformers>=4.51,<5", "accelerate>=1.0", "safetensors"]
+# dependencies = ["marimo>=0.17", "torch>=2.8", "transformers==4.57.6", "accelerate>=1.0", "safetensors", "huggingface-hub>=0.34,<1"]
 # ///
 import marimo
 app = marimo.App(width="full")
@@ -36,12 +36,13 @@ def _(mo, torch, time, start):
     model_id = "Qwen/Qwen3-0.6B"
     t0 = time.monotonic()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, device_map="cuda")
+    model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.bfloat16, device_map="cuda")
     model.eval()
     loaded = time.monotonic() - t0
     messages = [{"role": "user", "content": "Respondé en español en una oración: ¿qué es CUDA?"}]
     rendered = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
     inputs = tokenizer(rendered, return_tensors="pt").to("cuda")
+    torch.cuda.reset_peak_memory_stats()
     torch.cuda.synchronize()
     t1 = time.monotonic()
     with torch.inference_mode():
