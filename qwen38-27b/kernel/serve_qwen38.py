@@ -65,6 +65,7 @@ DEFAULTS = {
     "fast_start": False,           # True: skip precompile -> READY in ~4 min (needs the env
                                    # dataset's cache); the script then warms the common
                                    # request shapes itself; rare shapes stall once (~1 min)
+    "idle_timeout_min": 30,         # stop after 30 min without authenticated inference
     "keepalive_min": 480,          # auto-shutdown guard (Kaggle TPU caps at 9h anyway)
     "api_key": "",                 # generated if empty
     "ntfy_topic": "",              # optional: publish progress to ntfy.sh/<topic>
@@ -167,6 +168,8 @@ def _event_message_es(phase, extra):
     if phase == "benchmark":
         return f"Benchmark: {extra.get('decode_tok_s', '?')} tok/s."
     if phase == "auto-shutdown":
+        if extra.get("reason") == "idle-timeout":
+            return f"Apagado automatico tras {extra.get('idle_timeout_min', 30)} minutos sin solicitudes."
         return "Tiempo máximo alcanzado; instancia detenida correctamente."
     if phase == "failed":
         if extra.get("step") == "no-tpu":
@@ -483,6 +486,20 @@ NOISE = ("vllm._C", "metadata.google.internal", "Triton is installed", "Transpar
          "Precompile worker0 gather", "Precompile worker0 compute_and_gather")
 
 
+
+# Self-contained module: launcher pushes only this kernel file.
+IDLE_ACTIVITY_SOURCE = "\"\"\"Authenticated inference activity and atomic idle shutdown for Linux TPU kernels.\"\"\"\nimport fcntl\nimport hmac\nimport json\nimport os\nimport time\nfrom contextlib import contextmanager\nfrom pathlib import Path\n\nSTATE = Path(os.environ[\"KTL_IDLE_STATE\"])\nLOCK = Path(str(STATE) + \".lock\")\n\n@contextmanager\ndef locked_state():\n    with LOCK.open(\"a\") as lock:\n        fcntl.flock(lock, fcntl.LOCK_EX)\n        try:\n            state = json.loads(STATE.read_text()) if STATE.exists() else {\n                \"active\": 0, \"last_activity\": time.monotonic(), \"armed\": False, \"closing\": False}\n            yield state\n            tmp = STATE.with_name(STATE.name + \".\" + str(os.getpid()) + \".tmp\")\n            tmp.write_text(json.dumps(state))\n            tmp.chmod(0o600)\n            os.replace(tmp, STATE)\n        finally:\n            fcntl.flock(lock, fcntl.LOCK_UN)\n\ndef reset():\n    with locked_state() as state:\n        state.update(active=0, last_activity=time.monotonic(), armed=False, closing=False)\n\ndef arm():\n    with locked_state() as state:\n        state[\"armed\"] = True\n        state[\"last_activity\"] = time.monotonic()\n\ndef claim_idle_shutdown(timeout_s):\n    with locked_state() as state:\n        if (timeout_s > 0 and state[\"armed\"] and not state[\"closing\"]\n                and state[\"active\"] == 0\n                and time.monotonic() - state[\"last_activity\"] >= timeout_s):\n            state[\"closing\"] = True\n            return True\n        return False\n\nclass IdleActivityMiddleware:\n    def __init__(self, app):\n        self.app = app\n\n    async def __call__(self, scope, receive, send):\n        paths = {\"/v1/chat/completions\", \"/v1/completions\", \"/v1/responses\",\n                 \"/v1/embeddings\", \"/v1/messages\", \"/v1/rerank\", \"/rerank\",\n                 \"/v1/audio/speech\", \"/v1/audio/transcriptions\", \"/v1/audio/translations\"}\n        headers = dict(scope.get(\"headers\", []))\n        expected = (\"Bearer \" + os.environ[\"KTL_IDLE_API_KEY\"]).encode()\n        tracked = (scope.get(\"type\") == \"http\" and scope.get(\"method\") == \"POST\"\n                   and scope.get(\"path\", \"\").rstrip(\"/\") in paths\n                   and hmac.compare_digest(headers.get(b\"authorization\", b\"\"), expected))\n        if not tracked:\n            return await self.app(scope, receive, send)\n        with locked_state() as state:\n            closing = state[\"closing\"]\n            if not closing:\n                state[\"active\"] += 1\n                state[\"last_activity\"] = time.monotonic()\n        if closing:\n            await send({\"type\": \"http.response.start\", \"status\": 503,\n                        \"headers\": [(b\"content-type\", b\"application/json\")]})\n            await send({\"type\": \"http.response.body\",\n                        \"body\": b'{\"error\":{\"message\":\"Instance shutting down after idle timeout\"}}'})\n            return\n        try:\n            await self.app(scope, receive, send)\n        finally:\n            with locked_state() as state:\n                state[\"active\"] = max(0, state[\"active\"] - 1)\n                state[\"last_activity\"] = time.monotonic()\n"
+IDLE_MODULE_DIR = Path("/tmp/ktl-idle")
+IDLE_MODULE_DIR.mkdir(exist_ok=True)
+(IDLE_MODULE_DIR / "ktl_idle_activity.py").write_text(IDLE_ACTIVITY_SOURCE)
+os.environ["KTL_IDLE_STATE"] = str(IDLE_MODULE_DIR / "activity.json")
+os.environ["KTL_IDLE_API_KEY"] = CFG["api_key"]
+os.environ["PYTHONPATH"] = str(IDLE_MODULE_DIR) + os.pathsep + os.environ.get("PYTHONPATH", "")
+_idle_spec = importlib.util.spec_from_file_location("ktl_idle_activity", IDLE_MODULE_DIR / "ktl_idle_activity.py")
+idle_activity = importlib.util.module_from_spec(_idle_spec)
+_idle_spec.loader.exec_module(idle_activity)
+idle_activity.reset()
+
 def server_args(cfg):
     args = [PY, "-m", "vllm.entrypoints.openai.api_server",
             "--model", model_path,
@@ -490,6 +507,7 @@ def server_args(cfg):
             "--max-model-len", str(cfg["max_model_len"]),
             "--max-num-seqs", str(cfg["max_num_seqs"]),
             "--port", str(PORT),
+            "--middleware", "ktl_idle_activity.IdleActivityMiddleware",
             "--api-key", cfg["api_key"],
             "--served-model-name", cfg["served_model_name"],
             "--reasoning-parser", "qwen3"]
@@ -874,7 +892,7 @@ for _ in range(60):  # cloudflared download runs in the background from step 1
         break
     time.sleep(2)
 if CLOUDFLARED.exists():
-    pat = re.compile(r"https://[a-z0-9-]+\\.trycloudflare\\.com")
+    pat = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
     # Kaggle can block or degrade UDP/QUIC. Let cloudflared auto-negotiate first,
     # then retry explicitly over HTTP/2 if no quick-tunnel URL appears.
     for tunnel_args, label in (([], "auto"), (["--protocol", "http2"], "http2")):
@@ -938,7 +956,37 @@ log(f"#  Serving for up to {CFG['keepalive_min']} min, then this cell exits on i
 log("#" * 70)
 publish("ready", endpoint=(f"{url}/v1" if url else None), api_key=CFG["api_key"],
         model=CFG["served_model_name"], max_model_len=CFG["max_model_len"],
-        keepalive_min=CFG["keepalive_min"], startup_secs=startup)
+        keepalive_min=CFG["keepalive_min"], idle_timeout_min=CFG["idle_timeout_min"], startup_secs=startup)
+
+# Arm only after READY; polling and heartbeats do not count as work.
+idle_activity.arm()
+idle_shutdown_requested = threading.Event()
+def idle_watchdog():
+    timeout = CFG["idle_timeout_min"] * 60
+    if timeout <= 0:
+        return
+    while server.poll() is None:
+        time.sleep(5)
+        if idle_activity.claim_idle_shutdown(timeout):
+            idle_shutdown_requested.set()
+            log(f"   Apagando TPU: {CFG['idle_timeout_min']} min sin solicitudes de inferencia.")
+            try:
+                stop_server(server)
+                if tunnel is not None and tunnel.poll() is None:
+                    tunnel.terminate()
+                    try:
+                        tunnel.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        tunnel.kill()
+                        tunnel.wait(timeout=10)
+            except Exception as exc:
+                log("   Error durante limpieza; el kernel igualmente terminara:", type(exc).__name__)
+            finally:
+                publish("auto-shutdown", reason="idle-timeout", idle_timeout_min=CFG["idle_timeout_min"])
+                _raw.flush()
+                # End the kernel even if the main thread is blocked on warm-up.
+                os._exit(0)
+threading.Thread(target=idle_watchdog, daemon=True).start()
 
 if CFG["fast_start"]:
     banner(6, "Warm-up", "loading the common request shapes; the endpoint is usable meanwhile")
@@ -951,6 +999,9 @@ self_test(CFG)
 t_serve = time.time()
 while time.time() - t_serve < CFG["keepalive_min"] * 60:
     time.sleep(120)
+    if idle_shutdown_requested.is_set():
+        while True:
+            time.sleep(1)  # watchdog finishes cleanup and exits the kernel
     if server.poll() is not None:
         server_died(server, "stopped", reason="server-exit")
     up = int((time.time() - t_serve) / 60)
