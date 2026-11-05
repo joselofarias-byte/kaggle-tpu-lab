@@ -24,6 +24,10 @@ def _():
             self.load_seconds = None
 
         def load(self, model_id, dtype, trust_remote_code=False):
+            if "gguf" in model_id.lower():
+                raise ValueError("GGUF requiere llama.cpp; usá molab/lab.py, no AutoModelForCausalLM.")
+            if dtype == torch.bfloat16 and not torch.cuda.is_bf16_supported():
+                raise RuntimeError("Esta GPU no admite BF16; seleccioná FP16 explícitamente.")
             key = (model_id, str(dtype), trust_remote_code)
             if self.model is not None and self.key == key:
                 return
@@ -51,12 +55,9 @@ def _():
         def generate(self, messages, max_new_tokens, temperature):
             if self.model is None:
                 raise RuntimeError("Cargá un modelo primero.")
-            try:
-                rendered = self.tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
-                )
-            except (ValueError, TypeError, AttributeError):
-                rendered = "\n".join(f"{m['role']}: {m['content']}" for m in messages) + "\nassistant:"
+            rendered = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
+            )
             inputs = self.tokenizer(rendered, return_tensors="pt").to("cuda")
             args = {"max_new_tokens": max_new_tokens, "do_sample": temperature > 0,
                     "pad_token_id": self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id}

@@ -11,8 +11,10 @@ Only start needs huggingface-hub (>=0.34,<1). Supply an existing CUDA build;
 this CLI neither installs software nor allocates paid resources. The HF cache
 is reused; use --cache-dir on persistent storage when available. State defaults
 to ~/.local/state/molab-lab (private, outside the repository). API keys stay in
-that directory's api.key, never in argv or reports. Use an authorized SSH
-loopback forward for remote clients; this command never publishes a tunnel.
+that directory's api.key, never in argv or reports. External access is only appropriate on a platform that explicitly authorizes
+it; this command never publishes a tunnel or configures remote forwarding.
+Idle sleep unloads the model, not the platform allocation; it does not stop
+quota consumption or provide an automatic platform shutdown.
 Memory admission is an estimate, not a guarantee: KV/runtime overhead depends
 on the model. No automatic CPU/model fallback, MTP, or tool support is claimed.
 Stop releases this server, not the Molab allocation; platform quotas still apply.
@@ -35,6 +37,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 REPO = "DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF"
@@ -90,6 +93,7 @@ def gguf_groups(siblings):
         name, size = item.rfilename, item.size
         path = PurePosixPath(name)
         if (not name.lower().endswith(".gguf") or path.is_absolute()
+                or "mmproj" in path.name.lower()
                 or ".." in path.parts or "\\" in name or not size or size <= 0):
             continue
         match = SPLIT.match(name)
@@ -221,11 +225,37 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def api_request(state, key, route, body=None, timeout=10):
     data = None if body is None else json.dumps(body).encode()
+    headers = {"Content-Type": "application/json"}
+    if key is not None:
+        headers["Authorization"] = f"Bearer {key}"
     request = urllib.request.Request(
         f"http://127.0.0.1:{int(state['port'])}{route}", data=data,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        headers=headers)
     # Never let HTTP proxy configuration forward a local authenticated request.
     return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(request, timeout=timeout)
+
+
+def verify_auth(state):
+    try:
+        with api_request(state, None, "/v1/models", timeout=2):
+            pass
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            return
+        raise
+    raise LabError("Unauthenticated /v1/models was accepted; refusing insecure server")
+
+
+def runtime_options(args, help_text):
+    values = {"--sleep-idle-seconds": args.idle_seconds,
+              "--batch-size": args.batch_size, "--ubatch-size": args.ubatch_size,
+              "--flash-attn": args.flash_attn}
+    if args.ubatch_size > args.batch_size:
+        raise LabError("Microbatch size must not exceed batch size")
+    for flag in values:
+        if flag not in help_text:
+            raise LabError("Runtime lacks required option " + flag)
+    return [item for flag, value in values.items() for item in (flag, str(value))]
 
 
 def read_key(base):
@@ -270,6 +300,7 @@ def start(args, base):
                                         stderr=subprocess.STDOUT, timeout=20)
     if "--api-key-file" not in help_text:
         raise LabError("llama-server must support --api-key-file; refusing insecure startup")
+    options = runtime_options(args, help_text)
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", args.port))
     detected = hardware()
@@ -290,14 +321,15 @@ def start(args, base):
     command = [binary, "--model", str(model_path), "--alias", ALIAS,
                "--host", "127.0.0.1", "--port", str(args.port),
                "--api-key-file", str(key_path), "--ctx-size", str(args.context),
-               "--n-gpu-layers", "99", "--parallel", "1", "--jinja"]
+               "--n-gpu-layers", "99", "--parallel", "1", "--jinja"] + options
     # No server logs: some versions log requests or authentication data.
     process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, start_new_session=True,
                                env=env)
     state = {"pid": process.pid, "identity": process_identity(process.pid),
              "port": args.port, "model": model, "context": args.context,
-             "started_unix": time.time(), "startup_seconds": None}
+             "started_unix": time.time(), "startup_seconds": None,
+             "runtime_options": options}
     try:
         if state["identity"] is None:
             raise LabError("Server exited before process identity was recorded")
@@ -310,6 +342,7 @@ def start(args, base):
                 with api_request(state, key, "/v1/models", timeout=2) as response:
                     models = json.load(response)
                 if ALIAS in [item["id"] for item in models["data"]]:
+                    verify_auth(state)
                     state["startup_seconds"] = time.monotonic() - started
                     write_private(base / "state.json", json.dumps(state, indent=2))
                     return {"running": True, "port": args.port, "model": model,
@@ -383,7 +416,8 @@ def benchmark(args, base):
     count = usage.get("completion_tokens")
     report = {"schema": 1, "measured_unix": time.time(),
               "model": state["model"], "context": state["context"],
-              "startup_seconds": state["startup_seconds"], "wall_seconds": elapsed,
+              "startup_seconds": state["startup_seconds"],
+              "runtime_options": state.get("runtime_options"), "wall_seconds": elapsed,
               "ttft_seconds": first, "usage": usage,
               "completion_tokens_per_wall_second": count / elapsed if count is not None else None,
               "note": "End-to-end rate includes prompt processing and network overhead; not decode throughput. "
@@ -415,6 +449,11 @@ def main(argv=None):
     start_parser.add_argument("--filename", help="Exact GGUF or shard name; never replaced if it does not fit")
     start_parser.add_argument("--cache-dir", type=Path)
     start_parser.add_argument("--context", type=positive, default=4096)
+    start_parser.add_argument("--idle-seconds", type=positive, default=600,
+                              help="Server activity-aware model unload delay; NOT platform shutdown")
+    start_parser.add_argument("--batch-size", type=positive, default=512)
+    start_parser.add_argument("--ubatch-size", type=positive, default=128)
+    start_parser.add_argument("--flash-attn", choices=["on", "off", "auto"], default="auto")
     start_parser.add_argument("--port", type=positive, default=8080)
     start_parser.add_argument("--startup-timeout", type=positive, default=600)
     commands.add_parser("status")
