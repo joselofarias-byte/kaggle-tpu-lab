@@ -1,0 +1,65 @@
+# API autenticada de Molab y OpenCode — 4 de noviembre de 2026
+
+PR #12 mergeado por autorización del usuario en main: dc32b4a8c0d40a942ed58e3b7f99f29f3998e053.
+
+## Ejecutado en Molab
+
+El sandbox conserva el GGUF Q4_K_M MTP y los tres binarios CUDA compilados. Se inició llama-server con el mismo modelo, alias `jolufasoft-davidau-mtp`, contexto 32768, una secuencia, todas las capas GPU y decodificación MTP de hasta tres tokens. El contexto se configuró y cargó; no se hizo una prueba de capacidad de 32768 tokens.
+
+El servidor escucha exclusivamente en loopback. La clave se generó con secrets.token_hex(32), en archivo privado con modo 0600 bajo un directorio 0700. Se pasa por --api-key-file; no aparece en los argumentos ni se registra en este repositorio. Web UI deshabilitada; no se habilitaron herramientas integradas ni SSH.
+
+Pruebas reales:
+- GET /v1/models sin clave: **401**.
+- GET /v1/models con clave incorrecta: **401**.
+- GET /v1/models autenticado: enumera el alias.
+- Chat autenticado: respuesta `API_MTP_OK`, tiempo HTTP **0.367 s**.
+- Chat en streaming SSE: **6 chunks**, texto `API_MTP_OK` y marcador **[DONE]** recibidos.
+- OpenCode **1.19.5**, instalado desde npm en un directorio aislado del experimento.
+- OpenCode invocó **read** y leyó correctamente un archivo sintético, luego respondió **JOLUFASOFT_MTP_OPENCODE_OK**.
+- Tiempo total de OpenCode: **4.800 s**; proceso exit **0**; una llamada real de herramienta aprobada.
+
+El primer intento de OpenCode buscó una ruta relativa bajo /marimo y recibió File not found. La prueba reproducible se corrigió para proporcionar la ruta absoluta del fixture. Se conservan ambos logs; el primer intento no se presenta como exitoso. Sólo read estaba permitido; el resto de herramientas estaba denegado.
+
+## Archivos
+
+- davidau_mtp_service.py: start/status/test/stop, servidor autenticado y prueba SSE.
+- davidau_opencode_smoke.py: prueba real de OpenCode contra el proveedor.
+- opencode.molab.json: configuración sin secretos, mediante MOLAB_BASE_URL y MOLAB_API_KEY.
+- davidau_mtp_tailnet.py: preparación de Tailscale en userspace con acciones separadas, sin instalar, iniciar sesión ni publicar al importarlo.
+- evidence/molab-api-20261104/: logs y respuestas exportadas del notebook, con una allowlist explícita que excluye .private. Antes de exportar se comprobó que no contuvieran la clave generada.
+
+El service.py descargado y ejecutado corresponde al commit ceee649c98fe653fc9d0811a09501edf77a51813; el smoke test ejecutado corresponde a 62e47d575d51aa18dbd0a305299a48231d7a7c66. El script de Tailscale sólo está preparado; no se ejecutó ni se afirma que la ruta externa funcione.
+
+## Acceso desde HONOR / Muse / otro OpenCode
+
+**Pendiente:** incorporar el nodo Molab a la red Tailscale del usuario y activar Tailscale Serve privado con HTTPS hacia la API local. Esto requiere autorización para añadir ese dispositivo y completar el inicio de sesión. No se configuró Funnel ni se abrió un endpoint público. La API conservará su autenticación Bearer, además de la conectividad privada de la red.
+
+El script propone el nombre `jolufasoft-molab-llm`, sin SSH, rutas anunciadas ni importación de rutas/DNS. Después de aprobar e iniciar sesión, se debe comprobar la ruta desde un segundo cliente antes de declarar integración externa exitosa. Si la red no tiene HTTPS habilitado, se deberá revisar esa activación en el flujo de Tailscale.
+
+Cloudflare Quick Tunnels se descartó para OpenCode directo porque su documentación indica que no soporta SSE. La API local sí se verificó con SSE. No se inició un túnel alternativo sin confirmación.
+
+Muse Android no se abrió ni configuró en esta ejecución; se preparó el servidor compatible con OpenAI que puede consumir. No se afirma prueba real desde el teléfono.
+
+## Reproducción en Molab
+
+Desde la raíz del repositorio, con el runtime y modelo preparados:
+
+```bash
+python molab/davidau_mtp_service.py start
+python molab/davidau_mtp_service.py test
+npm install --prefix davidau-gguf-lab/opencode-runtime opencode-ai@1.19.5
+python molab/davidau_opencode_smoke.py
+```
+
+Para detenerlo:
+```bash
+python molab/davidau_mtp_service.py stop
+```
+
+El servidor requiere que el sandbox Molab siga activo y no es un servicio 24/7 garantizado. La clave y estado son locales al sandbox; no se promete persistencia entre recreaciones.
+
+Fuentes oficiales:
+- https://opencode.ai/docs/providers/
+- https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/
+- https://tailscale.com/docs/features/tailscale-serve
+- https://tailscale.com/docs/concepts/userspace-networking

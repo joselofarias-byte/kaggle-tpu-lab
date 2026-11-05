@@ -1,0 +1,12 @@
+{
+  "version": "1.19.5",
+  "returncode": 0,
+  "wall_seconds": 4.799833260000014,
+  "tool_calls": 1,
+  "successful_read_calls": 1,
+  "final_text": [
+    "JOLUFASOFT_MTP_OPENCODE_OK"
+  ],
+  "passed": true,
+  "scope": "OpenCode and llama-server run inside Molab; no external route tested"
+}
