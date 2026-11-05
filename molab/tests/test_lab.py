@@ -23,6 +23,9 @@ def sibling(name, size):
     return SimpleNamespace(rfilename=name, size=size)
 
 
+RUNTIME_HELP = "--api-key-file --sleep-idle-seconds --batch-size --ubatch-size --flash-attn"
+
+
 def detected(free=24 * lab.GIB, ram=64 * lab.GIB):
     return {"gpus": [{"index": 0, "free_bytes": free}], "ram_available_bytes": ram}
 
@@ -33,7 +36,8 @@ class ModelTests(unittest.TestCase):
             sibling("Q4-00002-of-00002.gguf", 20),
             sibling("Q4-00001-of-00002.gguf", 10),
             sibling("Q8-00001-of-00002.gguf", 60),
-            sibling("README.md", 5), sibling("unknown.gguf", None),
+            sibling("README.md", 5), sibling("mmproj-F16.gguf", 2),
+            sibling("vision-MMProj.gguf", 3), sibling("unknown.gguf", None),
             sibling("../bad.gguf", 10), sibling("/bad.gguf", 10),
             sibling("x-00000-of-00002.gguf", 10),
             sibling("x-00001-of-00002.gguf", 10)])
@@ -92,6 +96,26 @@ class ModelTests(unittest.TestCase):
 
 
 class SecurityTests(unittest.TestCase):
+    def test_unauthenticated_models_must_be_rejected(self):
+        response = MagicMock()
+        with patch.object(lab, "api_request", return_value=response):
+            with self.assertRaisesRegex(lab.LabError, "Unauthenticated"):
+                lab.verify_auth({"port": 8080})
+        error = lab.urllib.error.HTTPError("http://127.0.0.1", 401, "Unauthorized", {}, None)
+        with patch.object(lab, "api_request", side_effect=error) as request:
+            lab.verify_auth({"port": 8080})
+            self.assertIsNone(request.call_args.args[1])
+
+    def test_idle_runtime_options_require_support(self):
+        args = SimpleNamespace(idle_seconds=600, batch_size=512, ubatch_size=128, flash_attn="off")
+        with self.assertRaisesRegex(lab.LabError, "sleep-idle"):
+            lab.runtime_options(args, "--api-key-file")
+        options = lab.runtime_options(args, RUNTIME_HELP)
+        self.assertIn("--sleep-idle-seconds", options)
+        args.ubatch_size = 1024
+        with self.assertRaisesRegex(lab.LabError, "Microbatch"):
+            lab.runtime_options(args, RUNTIME_HELP)
+
     def test_private_dir_and_key_permissions(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = lab.private_dir(Path(tmp) / "state")
@@ -200,10 +224,11 @@ class LifecycleTests(unittest.TestCase):
             download.assert_not_called()
 
     def test_start_rejects_cpu_build_before_download(self):
-        args = SimpleNamespace(server="llama-server", port=8080)
+        args = SimpleNamespace(server="llama-server", port=8080, idle_seconds=600,
+                                   batch_size=512, ubatch_size=128, flash_attn="auto")
         with patch.object(lab, "read_state", return_value=None), \
                 patch.object(lab.shutil, "which", return_value="/bin/llama-server"), \
-                patch.object(lab.subprocess, "check_output", side_effect=["--api-key-file", "CPU only"]), \
+                patch.object(lab.subprocess, "check_output", side_effect=[RUNTIME_HELP, "CPU only"]), \
                 patch.object(lab.socket, "socket"), \
                 patch.object(lab, "hardware", return_value=detected()), \
                 patch.object(lab, "download_model") as download:
@@ -214,11 +239,12 @@ class LifecycleTests(unittest.TestCase):
     def test_start_auth_loopback_and_no_log_or_key_argv(self):
         with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
             base = lab.private_dir(Path(tmp) / "state")
-            args = SimpleNamespace(server="llama-server", port=8080, context=4096, startup_timeout=2)
+            args = SimpleNamespace(server="llama-server", port=8080, context=4096, startup_timeout=2,
+                                   idle_seconds=600, batch_size=512, ubatch_size=128, flash_attn="auto")
             metadata = {"weight_bytes": 10, "gpu_index": 0, "repository": lab.REPO,
                         "revision": lab.REVISION, "files": ["model.gguf"]}
             stack.enter_context(patch.object(lab.shutil, "which", return_value="/bin/llama-server"))
-            stack.enter_context(patch.object(lab.subprocess, "check_output", side_effect=["--api-key-file", "CUDA0: Test GPU", "CUDA0: Test GPU"]))
+            stack.enter_context(patch.object(lab.subprocess, "check_output", side_effect=[RUNTIME_HELP, "CUDA0: Test GPU", "CUDA0: Test GPU"]))
             stack.enter_context(patch.object(lab.socket, "socket"))
             stack.enter_context(patch.object(lab, "hardware", return_value=detected()))
             stack.enter_context(patch.object(lab, "download_model", return_value=(Path("/cache/model.gguf"), metadata)))
@@ -228,13 +254,16 @@ class LifecycleTests(unittest.TestCase):
             popen.return_value.poll.return_value = None
             response = MagicMock()
             response.__enter__.return_value = io.StringIO(json.dumps({"data": [{"id": lab.ALIAS}]}))
-            stack.enter_context(patch.object(lab, "api_request", return_value=response))
+            stack.enter_context(patch.object(lab, "api_request", side_effect=[response,
+                lab.urllib.error.HTTPError("http://127.0.0.1", 401, "Unauthorized", {}, None)]))
             self.assertTrue(lab.start(args, base)["running"])
             key = lab.read_key(base)
             command = popen.call_args.args[0]
             self.assertNotIn(key, " ".join(command))
             self.assertEqual(command[command.index("--host") + 1], "127.0.0.1")
             self.assertIn("--api-key-file", command)
+            self.assertEqual(command[command.index("--sleep-idle-seconds") + 1], "600")
+            self.assertEqual(command[command.index("--flash-attn") + 1], "auto")
             self.assertEqual(popen.call_args.kwargs["stdout"], subprocess.DEVNULL)
             self.assertEqual(popen.call_args.kwargs["stderr"], subprocess.DEVNULL)
             self.assertNotIn(key, (base / "state.json").read_text())
