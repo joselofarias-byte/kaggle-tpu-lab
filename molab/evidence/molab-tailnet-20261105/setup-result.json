@@ -37,5 +37,15 @@
     "relaunch_clicked": true,
     "api_from_reclaimed_sandbox_running": false
   },
-  "limits": "No successful tailnet enrollment, external API access, or post-reclamation inference is claimed. Earlier successful API/OpenCode measurements remain historical evidence."
+  "limits": "No successful tailnet enrollment, external API access, or post-reclamation inference is claimed. Earlier successful API/OpenCode measurements remain historical evidence.",
+  "post_relaunch": {
+    "curl_exit": 28,
+    "http_code": "000",
+    "elapsed_seconds": 5.001693,
+    "llama_server_present": false,
+    "gguf_present": false,
+    "tailscale_binary_present": false,
+    "compute_visible": "4 CPU · 32 GiB",
+    "provider_banner": "GPU access is temporarily restricted for your account."
+  }
 }
