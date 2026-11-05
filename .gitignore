@@ -3,3 +3,9 @@ __pycache__/
 .DS_Store
 out/
 *.log
+.venv/
+.env
+.env.*
+*.gguf
+.lab-state/
+lab-results/
