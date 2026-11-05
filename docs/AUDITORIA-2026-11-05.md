@@ -249,9 +249,14 @@ no se reclama ejecución interactiva GPU ni evidencia visual nueva. El criterio 
 aceptación completo permanece **parcial**, por hardware/acceso ausente y por la
 restricción de Molab para clientes externos. No hay benchmarks nuevos de modelos.
 
-Validación final local: **88 tests CPU aprobados**, una advertencia de deprecación
-Starlette/AnyIO; 65 fuentes Python compiladas, JSON de notebooks válido, `marimo
+Validación final local: **90 tests CPU aprobados**, una advertencia de deprecación
+Starlette/AnyIO; 66 fuentes Python compiladas, JSON de notebooks válido, `marimo
 check` en ambos notebooks Molab sin incidencias, lint selectivo y sintaxis shell
 correctos. Resumen legible por máquina: `docs/evidence/cpu-validation-2026-11-05.json`.
 La suite incluye detener un proceso CPU propio real mediante pidfd; las respuestas
 LLM son dobles de prueba, no inferencia. No se ejecutó la compilación CUDA.
+
+La revisión final corrigió el rechazo de un clon nuevo en `build_llama_cuda.sh`.
+Dos pruebas CPU usan Git local real y comandos CUDA/CMake simulados para comprobar
+clonación inicial, reutilización limpia y preservación de cambios locales. No
+constituyen una compilación CUDA ni una prueba de carga del modelo.
