@@ -11,8 +11,7 @@ mkdir -p "$BASE"
 SOURCE="$BASE/llama.cpp"
 if [[ ! -d "$SOURCE/.git" ]]; then
   git clone --no-checkout https://github.com/ggml-org/llama.cpp.git "$SOURCE"
-fi
-if [[ -n "$(git -C "$SOURCE" status --porcelain)" ]]; then
+elif [[ -n "$(git -C "$SOURCE" status --porcelain)" ]]; then
   echo 'Refusing to overwrite a modified llama.cpp checkout.' >&2; exit 1
 fi
 if ! git -C "$SOURCE" cat-file -e "$COMMIT^{commit}"; then
