@@ -223,3 +223,28 @@ No se fusionaron ramas, no se pagó infraestructura, no se descargaron pesos y n
 se modificaron experimentos. Esta auditoría no acredita que todo el criterio de
 aceptación esté cumplido: distingue implementaciones existentes, pruebas locales,
 evidencia histórica y bloqueos de política/hardware.
+
+## Actualización de integración del agente principal
+
+Consulta autenticada de GitHub el 5/11/2026: 18 ramas remotas, PR #12 integrado;
+PR #14 abierto en `feature/molab-authenticated-api`, sin incorporarlo ni sobrescribirlo.
+Issues está deshabilitado. Se inspeccionaron los listados de PR abiertos/cerrados,
+refs y workflows; no se afirma revisión línea por línea de cada rama experimental.
+Los PR #3/#4/#5/#10/#11/#13 permanecen separados; no se integra su trabajo a ciegas.
+CI previa sólo comprobaba sintaxis de `launch.py` y dos kernels TPU; el nuevo workflow
+`lab-tests.yml` agrega tests CPU/API, lint, notebooks y shells, sin solicitar GPU/TPU.
+
+El inventario vivo HF se consultó y guardó en
+`docs/evidence/davidau-files-2026-11-05.json`: revisión `b9bce7e8…`, 20 GGUF de pesos,
+3 proyectores, sin shards actuales. Se registraron tamaños y hashes LFS declarados;
+no se descargaron los pesos ni se verificó su contenido localmente en esta ejecución.
+`docs/evidence/local-probe-2026-11-05.json` registra el entorno de prueba CPU:
+Python 3.12.3, sin nvidia-smi/CUDA, PyTorch, JAX, libtpu ni llama-server instalados.
+No se inicializó TPU. La RAM informada de host no garantiza memoria de contenedor.
+
+Se agregan pruebas con backends CPU para API/SSE, validación de tools en el cliente,
+configuración OpenCode, gestión de procesos y selección/shards GGUF. No sustituyen
+carga o generación real. Los notebooks marimo existentes pasan validación estática;
+no se reclama ejecución interactiva GPU ni evidencia visual nueva. El criterio de
+aceptación completo permanece **parcial**, por hardware/acceso ausente y por la
+restricción de Molab para clientes externos. No hay benchmarks nuevos de modelos.
