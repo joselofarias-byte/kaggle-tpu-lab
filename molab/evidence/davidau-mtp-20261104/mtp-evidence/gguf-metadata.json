@@ -1,0 +1,42 @@
+{
+  "repository": "DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF",
+  "revision": "b9bce7e859c9b5047aca884e5bff76f8a0443de1",
+  "filename": "Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-Q4_K_M.gguf",
+  "hub_bytes": 18498573856,
+  "hub_sha256": "bc7a6cf2bcc78d1190aaf04d1ab1c5cb845b6ff23aa0e7d24fe0d2ea6d3a7c7c",
+  "architecture": "qwen35",
+  "block_count": 65,
+  "nextn_predict_layers": 1,
+  "file_type": 15,
+  "mtp_tensors": [
+    [
+      "blk.64.nextn.eh_proj.weight",
+      [
+        10240,
+        5120
+      ],
+      "8"
+    ],
+    [
+      "blk.64.nextn.enorm.weight",
+      [
+        5120
+      ],
+      "0"
+    ],
+    [
+      "blk.64.nextn.hnorm.weight",
+      [
+        5120
+      ],
+      "0"
+    ],
+    [
+      "blk.64.nextn.shared_head_norm.weight",
+      [
+        5120
+      ],
+      "0"
+    ]
+  ]
+}

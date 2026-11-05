@@ -1,0 +1,4 @@
+Available devices:
+  CUDA0: NVIDIA RTX PRO 6000 Blackwell Server Edition (97251 MiB, 95982 MiB free)
+
+STDERR

@@ -1,0 +1,48 @@
+{
+  "syntactic_tool_calls": 1,
+  "executed_by": "Python allowlist dispatcher, never by model",
+  "executions": [
+    {
+      "tool_call_id": "f2IrUTjSxgxiQZeZQcQIE2nDr4v9Joz9",
+      "result": 42
+    }
+  ],
+  "followup": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "El resultado es cuarenta y dos."
+        }
+      }
+    ],
+    "created": 1793842769,
+    "model": "/marimo/davidau-gguf-lab/models/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-Q4_K_M.gguf",
+    "system_fingerprint": "b1-cd959ba",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 10,
+      "prompt_tokens": 364,
+      "total_tokens": 374,
+      "prompt_tokens_details": {
+        "cached_tokens": 344
+      }
+    },
+    "id": "chatcmpl-RY8CJ6iV6p4UC3D58eGv1LSfhFNx9KXU",
+    "timings": {
+      "cache_n": 344,
+      "prompt_n": 20,
+      "prompt_ms": 275.379,
+      "prompt_per_token_ms": 13.76895,
+      "prompt_per_second": 72.62717926929794,
+      "predicted_n": 10,
+      "predicted_ms": 96.743,
+      "predicted_per_token_ms": 10.749222222222222,
+      "predicted_per_second": 93.02998666570191,
+      "draft_n": 9,
+      "draft_n_accepted": 7
+    }
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "load_seconds": 3.5265076190007676,
+  "auth_enforced": true,
+  "runs": [
+    {
+      "seconds": 1.7496852589993068,
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Ejecutar un LLM localmente ofrece privacidad total, ya que los datos no salen de tu máquina. Elimina dependencias de internet y reduce costos a largo plazo. Además, permite personalizar el modelo con tus propios datos y garantiza latencia baja y constante. Es ideal para entornos con requisitos estrictos de seguridad o cuando se necesita procesar información sensible sin compartirla con servicios en la nube."
+            }
+          }
+        ],
+        "created": 1793842755,
+        "model": "/marimo/davidau-gguf-lab/models/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-Q4_K_M.gguf",
+        "system_fingerprint": "b1-cd959ba",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 85,
+          "prompt_tokens": 36,
+          "total_tokens": 121,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "id": "chatcmpl-r1X7V1H1s3aC1DyHb0TPeIN6UoCcBM8u",
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 36,
+          "prompt_ms": 199.18,
+          "prompt_per_token_ms": 5.532777777777778,
+          "prompt_per_second": 180.74103825685307,
+          "predicted_n": 85,
+          "predicted_ms": 1546.539,
+          "predicted_per_token_ms": 18.41117857142857,
+          "predicted_per_second": 54.314828142064314
+        }
+      }
+    },
+    {
+      "seconds": 1.90644038299979,
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Ejecutar un LLM localmente ofrece privacidad total, ya que los datos no salen de tu máquina. Elimina dependencias de internet y reduce costos a largo plazo. Además, permite personalizar el modelo con tus propios datos y garantiza latencia baja y constante. Es ideal para entornos con requisitos estrictos de seguridad o cuando se necesita procesar información sensible sin compartirla con servicios en la nube."
+            }
+          }
+        ],
+        "created": 1793842757,
+        "model": "/marimo/davidau-gguf-lab/models/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-Q4_K_M.gguf",
+        "system_fingerprint": "b1-cd959ba",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 85,
+          "prompt_tokens": 36,
+          "total_tokens": 121,
+          "prompt_tokens_details": {
+            "cached_tokens": 32
+          }
+        },
+        "id": "chatcmpl-GgBLcVvvktUfo7lasVBIBaSGAi9r9EXf",
+        "timings": {
+          "cache_n": 32,
+          "prompt_n": 4,
+          "prompt_ms": 155.138,
+          "prompt_per_token_ms": 38.7845,
+          "prompt_per_second": 25.7834959842205,
+          "predicted_n": 85,
+          "predicted_ms": 1533.456,
+          "predicted_per_token_ms": 18.25542857142857,
+          "predicted_per_second": 54.77822643753717
+        }
+      }
+    },
+    {
+      "seconds": 1.7155970420008089,
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Ejecutar un LLM localmente ofrece privacidad total, ya que los datos no salen de tu máquina. Elimina dependencias de internet y reduce costos a largo plazo. Además, permite personalizar el modelo con tus propios datos y garantiza latencia baja y constante. Es ideal para entornos con requisitos estrictos de seguridad o cuando se necesita procesar información sensible sin compartirla con servicios en la nube."
+            }
+          }
+        ],
+        "created": 1793842759,
+        "model": "/marimo/davidau-gguf-lab/models/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-Q4_K_M.gguf",
+        "system_fingerprint": "b1-cd959ba",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 85,
+          "prompt_tokens": 36,
+          "total_tokens": 121,
+          "prompt_tokens_details": {
+            "cached_tokens": 32
+          }
+        },
+        "id": "chatcmpl-6Rsl3RtGYssDs2o71TGEM8HrvyvWnIU2",
+        "timings": {
+          "cache_n": 32,
+          "prompt_n": 4,
+          "prompt_ms": 170.896,
+          "prompt_per_token_ms": 42.724,
+          "prompt_per_second": 23.406048122834942,
+          "predicted_n": 85,
+          "predicted_ms": 1542.042,
+          "predicted_per_token_ms": 18.357642857142856,
+          "predicted_per_second": 54.47322446470329
+        }
+      }
+    }
+  ],
+  "peak_gpu_total_mib": 18692
+}

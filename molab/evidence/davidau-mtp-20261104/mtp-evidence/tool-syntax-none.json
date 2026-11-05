@@ -1,0 +1,46 @@
+{
+  "choices": [
+    {
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "type": "function",
+            "function": {
+              "name": "sumar",
+              "arguments": "{\"a\":17,\"b\":25}"
+            },
+            "id": "NJyJ6C3SBc6kO4ZDmpnipVDsG0Uwl59M"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1793842760,
+  "model": "/marimo/davidau-gguf-lab/models/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-Q4_K_M.gguf",
+  "system_fingerprint": "b1-cd959ba",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 38,
+    "prompt_tokens": 307,
+    "total_tokens": 345,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "id": "chatcmpl-hx5j9NHrEPFPGAoPnQkPU4vWj0UCPp38",
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 307,
+    "prompt_ms": 330.598,
+    "prompt_per_token_ms": 1.0768664495114006,
+    "prompt_per_second": 928.6202578358005,
+    "predicted_n": 38,
+    "predicted_ms": 675.602,
+    "predicted_per_token_ms": 18.259513513513514,
+    "predicted_per_second": 54.76597168155216
+  }
+}
