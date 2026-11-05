@@ -25,5 +25,4 @@ exec python3 -m vllm.entrypoints.openai.api_server \
   --api-key "$MOLAB_API_KEY" \
   --dtype auto --max-model-len "$CONTEXT" \
   --gpu-memory-utilization "$GPU_UTIL" \
-  --enable-auto-tool-choice --tool-call-parser hermes \
-  --trust-remote-code false
+  --enable-auto-tool-choice --tool-call-parser hermes
