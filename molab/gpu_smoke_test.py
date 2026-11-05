@@ -3,6 +3,8 @@
 # dependencies = ["marimo>=0.17", "torch>=2.8", "transformers==4.57.6", "accelerate>=1.0", "safetensors", "huggingface-hub>=0.34,<1"]
 # ///
 import marimo
+
+__generated_with = "0.17.8"
 app = marimo.App(width="full")
 
 @app.cell
