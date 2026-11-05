@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "python": "3.12.3",
+  "machine": "x86_64",
+  "ram": {
+    "total_bytes": 17179869184,
+    "available_bytes": 16871284736,
+    "scope": "host /proc/meminfo; not a container allocation guarantee"
+  },
+  "packages": {
+    "jax": null,
+    "jaxlib": null,
+    "libtpu": null,
+    "torch": null,
+    "torch-xla": null,
+    "vllm": null,
+    "vllm-tpu": null,
+    "transformers": null,
+    "llama-cpp-python": null
+  },
+  "binaries": {
+    "nvcc": null,
+    "llama-server": null
+  },
+  "gpu": {
+    "status": "unavailable",
+    "devices": []
+  },
+  "tpu": {
+    "status": "not_probed",
+    "reason": "use --probe-tpu to initialize JAX TPU backend"
+  }
+}

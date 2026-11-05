@@ -1,5 +1,15 @@
 # kaggle-tpu-lab
 
+> **Auditoría del fork (2026-11-05):** las cifras TPU que siguen son evidencia
+> histórica de las recetas, no mediciones de esta entrega. Para el modelo
+> prioritario DavidAU GGUF/CUDA, API autenticada, CLI `start/status/stop/benchmark`,
+> configuración OpenCode y límites de plataformas, ver
+> [Molab/Coding Lab](molab/CODING-LAB.md) y la
+> [auditoría técnica](docs/AUDITORIA-2026-11-05.md).
+> **Molab no permite exponer su cómputo a tráfico externo**: no usar túneles para
+> conectarlo como proveedor remoto de OpenCode. La ruta TPU es independiente de GGUF.
+
+
 Run open models on Kaggle's free TPU v5e-8 and get a public endpoint that speaks the
 OpenAI and Anthropic APIs. Point Claude Code, Codex CLI, opencode or anything else at it.
 No GPU, no cloud bill, about twenty minutes from pressing Run to a URL.

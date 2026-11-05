@@ -16,6 +16,7 @@ command -v gh >/dev/null || { echo "gh CLI required"; exit 1; }
 gh auth status >/dev/null
 fetch install_coding_ide_oracle.sh
 fetch configure_opencode_molab.sh
+fetch configure_opencode.py
 fetch smoke_test_coding_api.py
 fetch launch_vllm_coding.sh
 bash "$DIR/scripts/install_coding_ide_oracle.sh"
@@ -25,7 +26,7 @@ ls -lh "$DIR/scripts"
 echo "=== CONTAINER ==="
 docker ps --filter name=jolufasoft-code-server --format '{{.Names}} {{.Status}} {{.Ports}}'
 echo
-echo "NEXT: On HONOR Termux, start: ssh -N -L 18443:127.0.0.1:18443 oracle-lab"
+echo "Use an authorized existing VPS access path; no Termux keepalive is required by inference scripts."
 echo "Browser: http://127.0.0.1:18443"
 echo "Password on Oracle: $DIR/config/password"
-echo "GPU is not connected until Molab HTTPS endpoint passes smoke test."
+echo "Molab forbids exposing compute externally. Use remote clients only with an authorized provider."
