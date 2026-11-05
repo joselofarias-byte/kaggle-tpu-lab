@@ -32,9 +32,11 @@ El service.py descargado y ejecutado corresponde al commit ceee649c98fe653fc9d08
 
 ## Acceso desde HONOR / Muse / otro OpenCode
 
-**Pendiente:** incorporar el nodo Molab a la red Tailscale del usuario y activar Tailscale Serve privado con HTTPS hacia la API local. Esto requiere autorización para añadir ese dispositivo y completar el inicio de sesión. No se configuró Funnel ni se abrió un endpoint público. La API conservará su autenticación Bearer, además de la conectividad privada de la red.
+**Autorización recibida el 5/11/2026.** Se instaló Tailscale 1.104.5 desde el archivo oficial, verificando su SHA-256, y se inició tailscaled en modo userspace dentro de Molab. El daemon quedó en **NeedsLogin**: los dominios de Tailscale resuelven DNS, pero la conexión HTTPS a `controlplane.tailscale.com/key?v=148` agotó el tiempo de conexión. La comprobación con curl devolvió exit 28, HTTP 000 y 5,001 s. No se generó una AuthURL ni se incorporó un dispositivo a la red. No se configuró Serve/Funnel ni se abrió un endpoint público.
 
-El script propone el nombre `jolufasoft-molab-llm`, sin SSH, rutas anunciadas ni importación de rutas/DNS. Después de aprobar e iniciar sesión, se debe comprobar la ruta desde un segundo cliente antes de declarar integración externa exitosa. Si la red no tiene HTTPS habilitado, se deberá revisar esa activación en el flujo de Tailscale.
+El siguiente paso depende de que el sandbox pueda conectarse al plano de control de Tailscale. No requiere repetir la autorización de instalación, arranque o vinculación; esas autorizaciones ya fueron dadas. No se debe declarar conectividad desde HONOR/Muse hasta completar login y una prueba desde un segundo cliente.
+
+Además, Molab recreó el sandbox y eliminó el GGUF y los binarios. El archivo Q4_K_M MTP se volvió a descargar; se corrigió el preparador para respaldar directorios incompletos de llama.cpp que sobreviven sin .git, en lugar de fallar al clonar o borrar archivos. La restauración se lanzó en una sesión de proceso independiente para que una interrupción de diagnóstico del notebook no detenga la compilación. El estado final de esa restauración se registra por separado en la evidencia del 5/11.
 
 Cloudflare Quick Tunnels se descartó para OpenCode directo porque su documentación indica que no soporta SSE. La API local sí se verificó con SSE. No se inició un túnel alternativo sin confirmación.
 
