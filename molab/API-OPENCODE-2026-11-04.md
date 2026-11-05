@@ -65,3 +65,10 @@ Fuentes oficiales:
 - https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/
 - https://tailscale.com/docs/features/tailscale-serve
 - https://tailscale.com/docs/concepts/userspace-networking
+
+
+## Estado operativo posterior — 5/11/2026
+
+Molab mostró «Your sandbox stopped responding and was reclaimed» durante la recompilación de restauración. Se pulsó Relaunch una vez. La restauración no terminó y la API del sandbox reclamado se detuvo. La causa del cierre no fue confirmada; no se atribuye a OOM, cuota ni inactividad sin evidencia.
+
+La instalación de Tailscale 1.104.5 y el arranque userspace sí se ejecutaron antes del cierre. No se alcanzó el login ni se vinculó el dispositivo. No se debe interpretar la validación histórica de API/OpenCode del 4/11 como disponibilidad actual. Evidencia resumida del incidente: evidence/molab-tailnet-20261105/setup-result.json.
