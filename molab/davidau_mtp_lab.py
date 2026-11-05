@@ -17,7 +17,8 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md("""# DavidAU 27B · Q4_K_M MTP · CUDA
+    mo.md("""
+    # DavidAU 27B · Q4_K_M MTP · CUDA
 
     Laboratorio interactivo. Seleccioná GPU en Compute antes de preparar.
     El preparador verifica el GGUF exacto y compila llama.cpp con CUDA.
