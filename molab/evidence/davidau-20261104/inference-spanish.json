@@ -1,0 +1,42 @@
+{
+  "wall_seconds": 1.4349592460002896,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Una API REST es una interfaz de programación que utiliza los principios de arquitectura REST para permitir la comunicación entre sistemas a través de HTTP, usando métodos como GET, POST, PUT y DELETE para manipular recursos identificados por URLs."
+        }
+      }
+    ],
+    "created": 1793833493,
+    "model": "/marimo/davidau-gguf-lab/models/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-Q8_0.gguf",
+    "system_fingerprint": "b12110-cd959bae9",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 47,
+      "prompt_tokens": 28,
+      "total_tokens": 75,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "id": "chatcmpl-fOP7uDkfP4yZtKrJuc9JfBdLdkvaJ7ww",
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 28,
+      "prompt_ms": 194.99,
+      "prompt_per_token_ms": 6.963928571428572,
+      "prompt_per_second": 143.5971075439766,
+      "predicted_n": 47,
+      "predicted_ms": 1236.631,
+      "predicted_per_token_ms": 26.883282608695655,
+      "predicted_per_second": 37.19783832040439
+    }
+  },
+  "gpu_total_used_peak_mib": 29280,
+  "gpu_memory_note": "Total GPU usage sampled every 250 ms during the request, including other resident processes; not allocator tensor peak.",
+  "gpu_after": "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 29280 MiB"
+}

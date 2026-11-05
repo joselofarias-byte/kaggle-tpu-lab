@@ -1,0 +1,26 @@
+{
+  "none": {
+    "decode_mean_tps": 54.52209301476826,
+    "wall_mean_seconds": 1.7905742279999686,
+    "tokens_each": [
+      85,
+      85,
+      85
+    ],
+    "load_seconds": 3.5265076190007676,
+    "gpu_peak_mib": 18692,
+    "auth_enforced": true
+  },
+  "draft-mtp": {
+    "decode_mean_tps": 81.02813458336864,
+    "wall_mean_seconds": 1.3174389496677275,
+    "tokens_each": [
+      85,
+      85,
+      85
+    ],
+    "load_seconds": 3.5135729890007497,
+    "gpu_peak_mib": 19748,
+    "auth_enforced": true
+  }
+}
