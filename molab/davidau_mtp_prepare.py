@@ -32,6 +32,10 @@ def main():
     if not (cuda/"lib64").exists(): (cuda/"lib64").symlink_to("lib",target_is_directory=True)
     src=base/"llama.cpp"
     if not (src/".git").exists():
+        if src.exists():
+            backup=base/("llama.cpp.sandbox-backup-"+str(time.time_ns()))
+            src.rename(backup)
+            print("Preserved incomplete sandbox sources:", backup, flush=True)
         run(["git","clone","--depth","1","--branch","v0.9.0","https://github.com/ggml-org/llama.cpp.git",src])
     actual=subprocess.check_output(["git","-C",str(src),"rev-parse","HEAD"],text=True).strip()
     if actual!=COMMIT: raise RuntimeError("Unexpected llama.cpp revision: "+actual)
