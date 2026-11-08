@@ -61,9 +61,9 @@ jobs:
     uses: ./.github/workflows/modal-inference.yml
     with:
       controller_url: ${{ inputs.controller_url }}
-      profile: ${{ inputs.profile }}
+      profile: ${{ inputs.profile || 'qwen-small' }}
       gpu_hourly_usd: ${{ inputs.gpu_hourly_usd }}
-      max_minutes: ${{ inputs.max_minutes }}
+      max_minutes: ${{ fromJSON(format('{0}', inputs.max_minutes || 10)) }}
       accept_cost: ${{ inputs.accept_cost }}
       validate_only: ${{ inputs.validate_only }}
     secrets: inherit

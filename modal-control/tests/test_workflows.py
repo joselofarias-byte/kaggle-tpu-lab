@@ -69,7 +69,12 @@ def test_syntax_bridge_only_runs_inference_workflow_on_manual_dispatch():
     assert "if: ${{ github.event_name == 'workflow_dispatch' }}" in body
     assert "uses: ./.github/workflows/modal-inference.yml" in body
     for name in ("controller_url", "profile", "gpu_hourly_usd", "max_minutes", "accept_cost", "validate_only"):
-        assert f"      {name}: ${{{{ inputs.{name} }}}}" in body
+        if name == "max_minutes":
+            assert "max_minutes: ${{ fromJSON(format('{0}', inputs.max_minutes || 10)) }}" in body
+        elif name == "profile":
+            assert "profile: ${{ inputs.profile || 'qwen-small' }}" in body
+        else:
+            assert f"      {name}: ${{{{ inputs.{name} }}}}" in body
     assert "    secrets: inherit" in body
 
 
