@@ -67,10 +67,14 @@ pip install -r requirements.txt
 modal setup
 ```
 
-1. En el panel de Modal crear un Secret llamado `android-modal-control` con la
-   clave `CONTROLLER_TOKEN`. Generar localmente un valor con
-   `python -c 'import secrets; print(secrets.token_urlsafe(48))'` y copiarlo sólo
-   al Secret y al almacenamiento seguro de la APK. No compartirlo en capturas.
+La vía recomendada es `termux-deploy.sh`, descrita en [DEPLOYMENT.md](DEPLOYMENT.md):
+conserva y recupera automáticamente el token existente sin reintroducirlo.
+Los siguientes pasos son una alternativa avanzada, no el flujo de Termux/Actions.
+
+1. Reutilizar el Secret `android-modal-control` y su `CONTROLLER_TOKEN` si ya
+   existen. **No crear un token nuevo ni reemplazar ese Secret.** Sólo para una
+   instalación sin Secret previo, `python operations.py deploy` genera y guarda
+   la conexión privada automáticamente; no necesita imprimir el token en consola.
 2. Ejecutar `modal deploy deploy.py` desde este directorio. Creará la app
    `android-modal-control`, un Dict persistente y las imágenes. El controlador
    no reserva GPU en despliegue. Controlador y sandbox comparten imagen para que
@@ -85,7 +89,8 @@ modal setup
 4. Iniciar explícitamente un perfil, esperar `READY`, chatear y detener. Comprobar
    `STOPPED` antes de asumir que no queda GPU en ejecución. El cierre del teléfono
    no es una orden de detener: actúan el watchdog y el límite absoluto.
-5. Para rotar el token, actualizar el Secret, redesplegar y actualizar la APK.
+5. Los redespliegues conservan el token. No rotarlo para seguir esta guía;
+   una rotación explícita aparte rompería las conexiones anteriores de la APK.
 
 Usar esta app/nombre/Dict exclusivamente para este controlador. No lanzar otro
 controlador con un Dict distinto y el mismo nombre de sandbox. No borrar ni
