@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { KaggleAccount, LaunchConfig, RaceSession, LiveEndpoint } from './services/types';
 import { InstanceManager } from './services/racer';
+import { ModalView } from './components/ModalView';
 import { DashboardView } from './components/DashboardView';
 import { ChatView } from './components/ChatView';
 import { SettingsView } from './components/SettingsView';
 import { ExportModal } from './components/ExportModal';
-import { Cpu, LayoutDashboard, MessageSquare, Settings } from 'lucide-react';
+import { Cpu, Cloud, LayoutDashboard, MessageSquare, Settings } from 'lucide-react';
 import { clearKaggleCookies } from './services/kaggle';
 import { Preferences } from '@capacitor/preferences';
 import { secretStore } from './services/secureStore';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'modal' | 'chat' | 'settings'>('dashboard');
+  const [modalStatus, setModalStatus] = useState('Sin conectar');
   const [accounts, setAccounts] = useState<KaggleAccount[]>([
     {
       id: 'acc-main',
@@ -205,11 +207,11 @@ export const App: React.FC = () => {
       return { text: endpoints.length === 1 ? 'TPU lista' : `${endpoints.length} TPU listas`, cls: 'ready' };
     }
     const active = sessions.filter((s) => !s.done);
-    if (active.some((s) => s.status === 'QUEUED') && !active.some((s) => s.status === 'RUNNING' || s.status === 'WINNER')) {
-      return { text: 'En cola', cls: 'running' };
-    }
     if (active.some((s) => s.status === 'UNKNOWN')) {
       return { text: 'Estado sin confirmar', cls: 'running' };
+    }
+    if (active.some((s) => s.status === 'QUEUED') && !active.some((s) => s.status === 'RUNNING' || s.status === 'WINNER')) {
+      return { text: 'En cola', cls: 'running' };
     }
     if (active.length > 0) {
       return { text: 'Iniciando', cls: 'running' };
@@ -218,7 +220,9 @@ export const App: React.FC = () => {
     return { text: 'Sin sesión vinculada', cls: 'offline' };
   };
 
-  const statusInfo = getStatusInfo();
+  const statusInfo = activeTab === 'modal'
+    ? { text: modalStatus, cls: modalStatus === 'Lista' ? 'ready' : 'offline' }
+    : getStatusInfo();
 
   return (
     <div className="app-container">
@@ -229,8 +233,8 @@ export const App: React.FC = () => {
             <Cpu size={20} />
           </div>
           <div>
-            <div className="brand-title">Kaggle TPU Lab</div>
-            <div className="brand-sub">Controlador TPU v5e-8</div>
+            <div className="brand-title">Kaggle + Modal Lab</div>
+            <div className="brand-sub">{activeTab === 'modal' ? 'Controlador GPU Modal' : 'Controlador TPU v5e-8'}</div>
           </div>
         </div>
 
@@ -242,6 +246,7 @@ export const App: React.FC = () => {
 
       {/* Main Tab Content */}
       <main className={`app-content ${activeTab === 'chat' ? 'app-content-chat' : ''}`}>
+        <div hidden={activeTab !== 'modal'}><ModalView onStatusChange={setModalStatus} /></div>
         {activeTab === 'dashboard' && (
           <DashboardView
             accounts={accounts}
@@ -294,6 +299,11 @@ export const App: React.FC = () => {
           <LayoutDashboard size={20} />
           <span>Panel</span>
         </div>
+
+        <button type="button" className={`tab-item ${activeTab === 'modal' ? 'active' : ''}`}
+          style={{ background: 'none', border: 0, font: 'inherit' }} onClick={() => setActiveTab('modal')}>
+          <Cloud size={20} /><span>Modal</span>
+        </button>
 
         <div
           className={`tab-item ${activeTab === 'chat' ? 'active' : ''}`}

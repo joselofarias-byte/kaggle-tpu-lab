@@ -13,9 +13,23 @@ on:
       - "mobile-overlay/**"
       - ".github/workflows/mobile-android-es.yml"
   workflow_dispatch:
+    inputs:
+      modal_deploy:
+        description: 'Ejecutar el flujo Modal en lugar de compilar la APK'
+        type: boolean
+        default: false
+      validate_only:
+        description: 'Validar Modal sin acceder al proveedor ni desplegar'
+        type: boolean
+        default: true
+      acknowledge_cost:
+        description: 'Acepto posibles cargos de Modal y Actions (sin iniciar GPU)'
+        type: boolean
+        default: false
 
 jobs:
   build:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.modal_deploy) }}
     runs-on: ubuntu-latest
 
     steps:
@@ -90,15 +104,23 @@ jobs:
 
       - name: Package APK and checksum
         run: |
-          cp mobile-src/android/app/build/outputs/apk/debug/app-debug.apk kaggle-tpu-lab-es-v1.2.0-es1.apk
-          sha256sum kaggle-tpu-lab-es-v1.2.0-es1.apk | tee kaggle-tpu-lab-es-v1.2.0-es1.sha256
-          ls -lh kaggle-tpu-lab-es-v1.2.0-es1.apk
+          cp mobile-src/android/app/build/outputs/apk/debug/app-debug.apk kaggle-tpu-lab-es-v1.3.0-es1.apk
+          sha256sum kaggle-tpu-lab-es-v1.3.0-es1.apk | tee kaggle-tpu-lab-es-v1.3.0-es1.sha256
+          ls -lh kaggle-tpu-lab-es-v1.3.0-es1.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: kaggle-tpu-lab-es-apk
           path: |
-            kaggle-tpu-lab-es-v1.2.0-es1.apk
-            kaggle-tpu-lab-es-v1.2.0-es1.sha256
+            kaggle-tpu-lab-es-v1.3.0-es1.apk
+            kaggle-tpu-lab-es-v1.3.0-es1.sha256
           retention-days: 14
+
+  modal-deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.modal_deploy }}
+    uses: ./.github/workflows/modal-deploy.yml
+    with:
+      acknowledge_cost: ${{ inputs.acknowledge_cost }}
+      validate_only: ${{ inputs.validate_only }}
+    secrets: inherit

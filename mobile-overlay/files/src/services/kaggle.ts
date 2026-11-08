@@ -22,40 +22,40 @@ export interface KaggleStatusResponse {
  * 0 QUEUED, 1 RUNNING, 2 COMPLETE, 3 ERROR,
  * 4 CANCEL_REQUESTED, 5 CANCEL_ACKNOWLEDGED, 6 NEW_SCRIPT.
  */
-export function parseKaggleStatusPayload(rawInput: any): KaggleStatusResponse {
+export function parseKaggleStatusPayload(rawInput: any, allowDefaultQueued = false): KaggleStatusResponse {
   let raw: any = rawInput;
   if (typeof raw === 'string') {
     try { raw = JSON.parse(raw); } catch {
       return { status: 'UNKNOWN', detail: 'Respuesta de estado no JSON' };
     }
   }
-  if (!raw || typeof raw !== 'object') {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { status: 'UNKNOWN', detail: 'Respuesta de estado vacía o inválida' };
   }
 
-  const statusRaw = raw.status !== undefined ? raw.status : raw.workerStatus;
+  // The SDK defaults an omitted status to QUEUED (0). Only trust this on
+  // a successful status-endpoint response with no unexpected fields.
+  const defaultQueued = allowDefaultQueued && Object.keys(raw).every(
+    (key) => key === 'failureMessage' || key === 'failure_message'
+  ) && !raw.failureMessage && !raw.failure_message;
+  const statusRaw = raw.status ?? raw.workerStatus ?? (defaultQueued ? 0 : undefined);
   const s = String(statusRaw ?? '').trim().toUpperCase();
 
   let status: KaggleStatusResponse['status'] = 'UNKNOWN';
   let detail: string | undefined;
 
-  if (s.includes('RUNNING') || statusRaw === 1) status = 'RUNNING';
-  else if (s.includes('COMPLETE') || statusRaw === 2) status = 'COMPLETE';
-  else if (s.includes('ERROR') || statusRaw === 3) status = 'ERROR';
-  else if (
-    statusRaw === 4 ||
-    statusRaw === 5 ||
-    s.includes('CANCEL_REQUESTED') ||
-    s.includes('CANCEL_ACKNOWLEDGED')
-  ) {
-    // These are transition/ack states, not proof that the serving process is gone.
-    // Real-world Kaggle runs can keep serving after the slug-level endpoint reports
-    // one of them, so leave the session non-terminal and corroborate with ntfy.
-    status = 'UNKNOWN';
-    detail = `Kaggle informó ${s || statusRaw}; esperando confirmación de la sesión`;
-  } else if (s === 'CANCELLED' || s === 'CANCELED') status = 'CANCELLED';
-  else if (s.includes('QUEUE') || statusRaw === 0) status = 'QUEUED';
-  else if (s.includes('NEW_SCRIPT') || statusRaw === 6) status = 'QUEUED';
+  const states: Record<string, KaggleStatusResponse['status']> = {
+    '0': 'QUEUED', QUEUED: 'QUEUED',
+    '1': 'RUNNING', RUNNING: 'RUNNING',
+    '2': 'COMPLETE', COMPLETE: 'COMPLETE',
+    '3': 'ERROR', ERROR: 'ERROR',
+    '6': 'QUEUED', NEW_SCRIPT: 'QUEUED',
+    CANCELLED: 'CANCELLED', CANCELED: 'CANCELLED',
+  };
+  status = Object.prototype.hasOwnProperty.call(states, s) ? states[s] : 'UNKNOWN';
+  if (['4', '5', 'CANCEL_REQUESTED', 'CANCEL_ACKNOWLEDGED'].includes(s)) {
+    detail = 'Kaggle informó una cancelación en trámite; esperando confirmación de la sesión';
+  }
 
   return {
     status,
@@ -270,7 +270,7 @@ export class KaggleApi {
       });
 
       if (res.status === 200) {
-        return parseKaggleStatusPayload(res.data);
+        return parseKaggleStatusPayload(res.data, true);
       }
 
       // Do not turn an HTTP/API problem into a fake terminal state.

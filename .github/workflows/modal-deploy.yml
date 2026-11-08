@@ -1,0 +1,88 @@
+name: Deploy Modal controller (manual)
+
+on:
+  workflow_call:
+    inputs:
+      acknowledge_cost:
+        type: boolean
+        default: false
+      validate_only:
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      validate_only:
+        description: 'Validar archivos y referencia sin acceder a Modal ni desplegar'
+        type: boolean
+        default: true
+      acknowledge_cost:
+        description: 'Acepto posibles cargos de build, CPU/RAM, almacenamiento y Actions (sin iniciar GPU)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: modal-owned-controller
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate repository files without remote access
+        env:
+          CHECKED_SHA: ${{ github.sha }}
+          CHECKED_REF: ${{ github.ref }}
+        run: |
+          test -f .github/workflows/modal-deploy.yml
+          test -f .github/workflows/mobile-android-es.yml
+          test -f modal-control/requirements.txt
+          python -m py_compile modal-control/operations.py modal-control/deploy.py modal-control/control.py modal-control/worker.py
+          printf 'Validated SHA=%s ref=%s; no Modal access or deployment in this job.\n' "$CHECKED_SHA" "$CHECKED_REF" | tee -a "$GITHUB_STEP_SUMMARY"
+  deploy:
+    needs: validate
+    if: ${{ inputs.acknowledge_cost && !inputs.validate_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned controller dependencies
+        run: python -m pip install -r modal-control/requirements.txt
+      - name: Deploy and verify without starting a model
+        working-directory: modal-control
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          CONTROLLER_TOKEN: ${{ secrets.CONTROLLER_TOKEN }}
+          CONTROLLER_BUNDLE_PASSWORD: ${{ secrets.CONTROLLER_BUNDLE_PASSWORD }}
+        run: python operations.py deploy --encrypted-output "$RUNNER_TEMP/connection.enc"
+      - name: Downloadable encrypted connection (never plaintext)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-controller-connection
+          path: ${{ runner.temp }}/connection.enc
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Connection instructions
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          Controlador desplegado y verificado sin iniciar GPU ni cargar el modelo.
+          Esto no significa coste cero: builds y peticiones del controlador usan recursos.
+          El CONTROLLER_TOKEN existente se reutiliza desde el secreto de Modal, sin rotarlo.
+          No es necesario descifrar ni volver a cargar el token para redesplegar.
+          Sólo para configurar o recuperar una conexión local: descarga el artefacto cifrado `modal-controller-connection` y descífralo localmente
+          con `python operations.py decrypt connection.enc` y tu contraseña de bundle.
+          Introduce URL/token en la pestaña Modal de la APK (Guardar y conectar).
+          Consulta `modal-control/DEPLOYMENT.md`; no publiques el token ni la conexión descifrada.
+          EOF

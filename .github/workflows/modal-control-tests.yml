@@ -1,0 +1,24 @@
+name: Modal controller tests
+
+on:
+  push:
+    paths:
+      - 'modal-control/**'
+      - '.github/workflows/modal-control-tests.yml'
+  pull_request:
+    paths:
+      - 'modal-control/**'
+      - '.github/workflows/modal-control-tests.yml'
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt -r requirements-test.txt
+        working-directory: modal-control
+      - run: python -m pytest -q
+        working-directory: modal-control

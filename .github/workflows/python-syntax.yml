@@ -1,14 +1,49 @@
 name: Python syntax
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
       - main
       - "feature/**"
   pull_request:
+  workflow_dispatch:
+    inputs:
+      validate_only:
+        description: 'Validar archivos y referencia sin acceder a Modal ni ejecutar inferencia'
+        type: boolean
+        default: true
+      controller_url:
+        description: 'URL HTTPS del controlador (sin token; obligatoria para inferencia real)'
+        type: string
+        required: false
+        default: ''
+      profile:
+        description: 'GPU y recursos: qwen-small=T4/2 CPU/8 GiB; qwen-7b=L40S/4 CPU/16 GiB'
+        type: choice
+        options: [qwen-small, qwen-7b]
+        default: qwen-small
+      gpu_hourly_usd:
+        description: 'Tarifa GPU USD/h verificada (obligatoria para inferencia real); CPU/RAM aparte'
+        type: string
+        required: false
+        default: ''
+      max_minutes:
+        description: 'Límite absoluto del sandbox (5–20 min, incluye descarga/carga)'
+        type: number
+        default: 10
+        required: true
+      accept_cost:
+        description: 'Autorizo esta prueba GPU y cargos adicionales; la estimación no es un presupuesto total'
+        type: boolean
+        default: false
+        required: true
 
 jobs:
   syntax:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,3 +55,15 @@ jobs:
           python -m py_compile launch.py
           python -m py_compile qwen38-27b/kernel/serve_qwen38.py
           python -m py_compile glm53-flash/kernel/serve_glm53.py
+
+  modal-inference:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/modal-inference.yml
+    with:
+      controller_url: ${{ inputs.controller_url }}
+      profile: ${{ inputs.profile }}
+      gpu_hourly_usd: ${{ inputs.gpu_hourly_usd }}
+      max_minutes: ${{ inputs.max_minutes }}
+      accept_cost: ${{ inputs.accept_cost }}
+      validate_only: ${{ inputs.validate_only }}
+    secrets: inherit

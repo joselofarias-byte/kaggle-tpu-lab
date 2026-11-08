@@ -362,7 +362,7 @@ export class InstanceManager {
               text: `No se pudo confirmar el estado en Kaggle (${detail}). Se mantiene el seguimiento y no se da la sesión por terminada.`,
             });
           }
-          if (session.status === 'IDLE') session.status = 'UNKNOWN';
+          if (!hasRecentServingEvidence(session)) session.status = 'UNKNOWN';
           session.done = false;
           continue;
         }
@@ -601,9 +601,8 @@ export class InstanceManager {
           text: `Kaggle confirmó fin de la sesión: ${sessionTerminalStatus}${sessionTerminalMessage ? ` — ${sessionTerminalMessage}` : ''}`,
         });
       } else if (session && sawUnknown && !session.done) {
-        // Preserve the last confirmed state. Losing one status probe must not
-        // detach the controller from a potentially live TPU.
-        if (session.status === 'IDLE') session.status = 'UNKNOWN';
+        // Keep monitoring without presenting an old API state as confirmed.
+        if (!hasRecentServingEvidence(session)) session.status = 'UNKNOWN';
         session.done = false;
         const last = session.events[session.events.length - 1];
         if (!last || last.phase !== 'sync-unknown') {

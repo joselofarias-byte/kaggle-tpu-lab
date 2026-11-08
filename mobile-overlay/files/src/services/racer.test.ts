@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { decideEndpointMount, hasRecentServingEvidence } from './racer';
+import { KaggleApi } from './kaggle';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { decideEndpointMount, hasRecentServingEvidence, InstanceManager } from './racer';
 
 const base = {
   status: 'RUNNING' as const,
@@ -142,5 +143,53 @@ describe('hasRecentServingEvidence', () => {
       now,
       900
     )).toBe(false);
+  });
+});
+
+
+describe('status reconciliation', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  function setup() {
+    const manager = new InstanceManager(vi.fn());
+    const session: any = {
+      account: 'test', username: 'demo', token: 'test-only', slug: 'qwen38-tpu-serve',
+      topic: '', status: 'QUEUED', done: false, events: [], seenBoot: false,
+    };
+    (manager as any).sessions.set('test', session);
+    return { manager, session };
+  }
+
+  it('marks a failed poll unknown, keeps monitoring, then recovers to queued', async () => {
+    const { manager, session } = setup();
+    const getStatus = vi.spyOn(KaggleApi.prototype, 'getStatus').mockResolvedValue({ status: 'UNKNOWN' });
+    await (manager as any).monitorLoop();
+    expect(session.status).toBe('UNKNOWN');
+    expect(session.done).toBe(false);
+    expect(manager.getAllSessions()).toHaveLength(1);
+    getStatus.mockResolvedValue({ status: 'QUEUED' });
+    await (manager as any).monitorLoop();
+    expect(session.status).toBe('QUEUED');
+    expect(session.done).toBe(false);
+  });
+
+  it('preserves a recent session-specific serving confirmation', async () => {
+    const { manager, session } = setup();
+    session.status = 'RUNNING';
+    session.lastEvent = { phase: 'heartbeat', rawTime: Date.now() / 1000 };
+    vi.spyOn(KaggleApi.prototype, 'getStatus').mockResolvedValue({ status: 'UNKNOWN' });
+    await (manager as any).monitorLoop();
+    expect(session.status).toBe('RUNNING');
+    expect(session.done).toBe(false);
+  });
+
+  it('manual refresh also marks an unconfirmed queued session unknown', async () => {
+    vi.useFakeTimers();
+    const { manager, session } = setup();
+    vi.spyOn(KaggleApi.prototype, 'getStatus').mockResolvedValue({ status: 'UNKNOWN' });
+    await manager.refreshAccount({ id: 'test', username: 'demo', token: 'test-only' } as any);
+    expect(session.status).toBe('UNKNOWN');
+    expect(session.done).toBe(false);
+    vi.clearAllTimers();
   });
 });

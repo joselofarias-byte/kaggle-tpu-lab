@@ -1,0 +1,37 @@
+.modal-view {
+  width: 100%;
+  min-width: 0;
+  padding-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+
+.modal-view .glass-card { min-width: 0; }
+.modal-view h2 { font-size: 16px; }
+.modal-view .modal-help { color: var(--text-secondary); font-size: 12px; margin: 8px 0 12px; }
+.modal-field { display: block; min-width: 0; margin: 12px 0; color: var(--text-secondary); font-size: 12px; }
+.modal-field input, .modal-field select, .modal-field textarea { display: block; min-width: 0; max-width: 100%; margin-top: 6px; font-size: 16px; }
+.modal-field textarea { resize: vertical; }
+.modal-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.modal-view .btn { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.modal-view .btn:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+.modal-view button:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 3px; }
+.modal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.modal-profile { padding: 12px; border-radius: var(--radius-sm); background: var(--bg-input); }
+.modal-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px 12px; font-size: 12px; margin: 12px 0; }
+.modal-details dt { color: var(--text-secondary); }
+.modal-details dd { min-width: 0; user-select: text; }
+.modal-status { font-weight: 600; color: var(--accent-cyan); }
+.modal-status.modal-uncertain { color: var(--accent-amber); }
+.modal-feedback { margin: 12px 14px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-secondary); }
+.modal-view .modal-error { color: #fda4af; }
+.modal-log { max-height: 280px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: 12px/1.6 var(--font-mono); margin-top: 12px; }
+.modal-messages { display: grid; gap: 10px; max-height: 380px; overflow-y: auto; }
+.modal-message { min-width: 0; padding: 12px; border-radius: var(--radius-sm); background: var(--bg-input); user-select: text; }
+.modal-message-user { border-left: 3px solid var(--accent-blue); }
+.modal-message-assistant { border-left: 3px solid var(--accent-cyan); }
+.modal-message p { white-space: pre-wrap; margin-top: 6px; }
+@media (max-width: 360px) {
+  .modal-grid, .modal-details { grid-template-columns: minmax(0, 1fr); }
+  .modal-details dd { margin-bottom: 6px; }
+  .modal-actions .btn { flex: 1 1 100%; }
+}
