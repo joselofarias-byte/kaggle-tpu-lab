@@ -1,0 +1,23 @@
+{
+  "date_utc": "2026-11-05",
+  "scope": "CPU sandbox; no Kaggle/Molab authentication, accelerator allocation, weights or real inference",
+  "python": "3.12.3",
+  "pytest": {
+    "passed": 90,
+    "failed": 0,
+    "warnings": 1,
+    "warning": "Starlette TestClient uses a deprecated AnyIO BlockingPortal alias"
+  },
+  "tracked_python_sources_compiled": 66,
+  "notebook_json": "parsed, nbformat 4 asserted",
+  "marimo_check": {
+    "jolufasoft_llm_lab.py": "passed",
+    "gpu_smoke_test.py": "passed"
+  },
+  "ruff": "passed E9,F63,F7,F82 for new runtime, API, clients and tests",
+  "shell_syntax": "passed tools/build_llama_cuda.sh and molab/scripts/*.sh",
+  "real_cpu_process_stop": "passed via pidfd; unit suite includes a real owned sleep process",
+  "hardware_benchmarks": "not run",
+  "opencode_real_client": "not run; configuration and API contract tests only",
+  "cuda_build_helper": "fresh local Git clone, clean reuse and dirty-checkout preservation passed with stub CUDA/CMake commands; no CUDA compilation"
+}
