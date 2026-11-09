@@ -32,7 +32,7 @@ import { Preferences } from '@capacitor/preferences';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
 /** Storage keys that hold secrets and must never be plaintext on native. */
-export const SECRET_KEYS = ['ktl_accounts', 'ktl_sessions'] as const;
+export const SECRET_KEYS = ['ktl_accounts', 'ktl_sessions', 'ktl_modal_connection'] as const;
 
 export interface KeyValueBackend {
   get(key: string): Promise<string | null>;

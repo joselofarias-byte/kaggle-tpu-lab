@@ -1,0 +1,5 @@
+modal==1.4.2
+fastapi==0.115.12
+httpx==0.28.1
+uvicorn==0.34.2
+cryptography==46.0.3

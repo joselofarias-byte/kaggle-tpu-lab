@@ -1,0 +1,120 @@
+name: Test Modal inference (manual, paid GPU)
+
+on:
+  workflow_call:
+    inputs:
+      controller_url:
+        type: string
+        default: ''
+      profile:
+        type: string
+        default: qwen-small
+      gpu_hourly_usd:
+        type: string
+        default: ''
+      max_minutes:
+        type: number
+        default: 10
+      accept_cost:
+        type: boolean
+        default: false
+      validate_only:
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      validate_only:
+        description: 'Validar archivos y referencia sin acceder a Modal ni ejecutar inferencia'
+        type: boolean
+        default: true
+      controller_url:
+        description: 'URL HTTPS del controlador (sin token; obligatoria para inferencia real)'
+        type: string
+        required: false
+        default: ''
+      profile:
+        description: 'GPU y recursos: qwen-small=T4/2 CPU/8 GiB; qwen-7b=L40S/4 CPU/16 GiB'
+        type: choice
+        options: [qwen-small, qwen-7b]
+        default: qwen-small
+      gpu_hourly_usd:
+        description: 'Tarifa GPU USD/h verificada (obligatoria para inferencia real); CPU/RAM aparte'
+        type: string
+        required: false
+        default: ''
+      max_minutes:
+        description: 'Límite absoluto del sandbox (5–20 min, incluye descarga/carga)'
+        type: number
+        default: 10
+        required: true
+      accept_cost:
+        description: 'Autorizo esta prueba GPU y cargos adicionales; la estimación no es un presupuesto total'
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: modal-owned-controller
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate inference files without remote access
+        env:
+          CHECKED_SHA: ${{ github.sha }}
+          CHECKED_REF: ${{ github.ref }}
+        run: |
+          test -f .github/workflows/modal-inference.yml
+          test -f .github/workflows/python-syntax.yml
+          test -f modal-control/requirements.txt
+          python -m py_compile modal-control/infer.py modal-control/operations.py
+          printf 'Validated SHA=%s ref=%s; no Modal access or inference in this job.\n' "$CHECKED_SHA" "$CHECKED_REF" | tee -a "$GITHUB_STEP_SUMMARY"
+  inference:
+    needs: validate
+    if: ${{ inputs.accept_cost && !inputs.validate_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      CONTROLLER_TOKEN: ${{ secrets.CONTROLLER_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r modal-control/requirements.txt
+      - name: One explicit inference, then stop
+        working-directory: modal-control
+        env:
+          CONTROLLER_URL: ${{ inputs.controller_url }}
+          PROFILE: ${{ inputs.profile }}
+          MAX_MINUTES: ${{ inputs.max_minutes }}
+          GPU_HOURLY_USD: ${{ inputs.gpu_hourly_usd }}
+        run: |
+          python infer.py run --url "$CONTROLLER_URL" --profile "$PROFILE" \
+            --max-minutes "$MAX_MINUTES" --gpu-hourly-usd "$GPU_HOURLY_USD" \
+            --accept-cost --journal "$RUNNER_TEMP/inference.json"
+      - name: Always retry owned-session shutdown
+        if: ${{ always() }}
+        working-directory: modal-control
+        run: python infer.py stop --journal "$RUNNER_TEMP/inference.json"
+      - name: Cost and shutdown note
+        if: ${{ always() }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          La prueba solicita GPU sólo mediante POST /api/session; descarga/carga consume tiempo GPU.
+          La tarifa declarada es orientativa: CPU/RAM Sandbox, controlador y otros cargos no están incluidos.
+          Se intenta apagar en finally y en un paso always; si el runner muere o se cancela de forma forzada,
+          el timeout absoluto de Modal (5–20 minutos) sigue siendo el respaldo independiente.
+          Si la parada no se confirma, revisa sólo el sandbox `android-owned-model-v1` de `android-modal-control`.
+          EOF
