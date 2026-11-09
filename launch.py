@@ -127,6 +127,7 @@ def cmd_serve(args):
             "mtp_tokens": args.mtp,
             "reasoning_effort_default": args.reasoning_effort,
             "keepalive_min": args.keepalive_min,
+            "idle_timeout_min": args.idle_timeout_min,
             "weights_dataset": args.weights_dataset,
             "hf_model_id": args.hf_model_id,
             "served_model_name": args.served_model_name,
@@ -919,6 +920,41 @@ def _wait_for_public_endpoint(kernel, topic, start_timeout_s=2100, queue_timeout
         now = time.time()
         status, _ = _kernel_status(kernel)
 
+        # Kaggle's slug status can lag the session-specific lifecycle topic.
+        # Always consume lifecycle evidence before QUEUED/terminal shortcuts.
+        events = sorted(read_events(topic, int(now - 24 * 3600)), key=lambda item: item[0])
+        ready = None
+        serving_at = None
+        boot_at = None
+        terminal_phase = None
+        for ts, ev in events:
+            phase = ev.get("phase")
+            if phase in ("failed", "auto-shutdown", "stopped"):
+                ready = None
+                serving_at = None
+                boot_at = None
+                terminal_phase = phase
+            else:
+                if phase in ("install", "server-launch", "ready", "serving", "heartbeat"):
+                    terminal_phase = None
+                if phase == "ready" and ev.get("endpoint"):
+                    ready = ev
+                if phase in ("ready", "serving", "heartbeat"):
+                    serving_at = ts
+                if phase in ("install", "installed", "server-launch", "loading",
+                             "loaded", "compiling", "warmed", "serving", "ready", "heartbeat"):
+                    boot_at = ts if boot_at is None else boot_at
+        # A later shutdown invalidates any previous endpoint, even in QUEUED.
+        if terminal_phase is not None:
+            return None, f"event-{terminal_phase}"
+        recent_serving = serving_at is not None and 0 <= now - serving_at <= 900
+        if ready is not None and recent_serving:
+            say("ENDPOINT PUBLICO LISTO.")
+            return ready, None
+        if running_started is None and boot_at is not None:
+            running_started = min(now, boot_at)
+            say("TPU ASIGNADA: el topic de la sesion confirma que Qwen ya esta arrancando.")
+
         if status != last_status:
             if status == "QUEUED":
                 say("TPU EN COLA: esperando que Kaggle asigne una v5e-8. Este tiempo no cuenta como arranque.")
@@ -930,10 +966,10 @@ def _wait_for_public_endpoint(kernel, topic, start_timeout_s=2100, queue_timeout
                 say(f"Estado Kaggle: {status}")
             last_status = status
 
-        if status in ("ERROR", "CANCELACKNOWLEDGED", "COMPLETE"):
+        if status in ("ERROR", "COMPLETE", "CANCELLED") and not recent_serving:
             return None, f"kernel-{status.lower()}"
 
-        if status == "QUEUED":
+        if status == "QUEUED" and running_started is None:
             queued_s = now - queue_started
             if queue_timeout_s > 0 and queued_s >= queue_timeout_s:
                 return None, "queue-timeout"
@@ -947,16 +983,6 @@ def _wait_for_public_endpoint(kernel, topic, start_timeout_s=2100, queue_timeout
             running_started = now
             say("TPU ASIGNADA: comienza ahora el tiempo de arranque de Qwen.")
 
-        events_since = int((running_started or queue_started) - 120)
-        events = read_events(topic, events_since)
-        for _, ev in reversed(events):
-            phase = ev.get("phase")
-            if phase == "ready" and ev.get("endpoint"):
-                say("ENDPOINT PUBLICO LISTO.")
-                return ev, None
-            if phase in ("failed", "auto-shutdown", "stopped"):
-                return None, f"event-{phase}"
-
         if events:
             latest = events[-1][1]
             phase = latest.get("phase")
@@ -969,7 +995,7 @@ def _wait_for_public_endpoint(kernel, topic, start_timeout_s=2100, queue_timeout
                         say(label)
                 last_phase = phase
 
-        if status == "RUNNING":
+        if running_started is not None:
             run_s = now - running_started
             if run_s >= start_timeout_s:
                 return None, "startup-timeout"
@@ -1004,6 +1030,11 @@ def cmd_auto_audit(args):
         try:
             st = load_state()
             status, _ = _kernel_status(st["kernel"])
+            if status in ("UNKNOWN", "CANCEL_ACKNOWLEDGED", "CANCELACKNOWLEDGED",
+                          "CANCEL_REQUESTED", "CANCELREQUESTED"):
+                sys.exit("El estado de la sesion es ambiguo o la cancelacion sigue pendiente. "
+                         "No voy a iniciar otra TPU automaticamente. Comproba la sesion existente "
+                         "con scripts/diagnose_session.py antes de volver a lanzar.")
             active = status in ("QUEUED", "RUNNING")
         except Exception:
             active = False
@@ -1108,6 +1139,8 @@ def main():
                    choices=["xhigh", "high", "medium", "low"],
                    help="server-side default; clients can still override per request "
                         "(qwen38-27b: xhigh | medium | low; glm53-flash: low | medium | high, default low)")
+    s.add_argument("--idle-timeout-min", type=int, default=30,
+                   help="Qwen: apagar tras estos minutos sin inferencia; no interrumpe solicitudes activas")
     s.add_argument("--keepalive-min", type=int, default=480,
                    help="auto-shutdown after this many minutes of serving")
     s.add_argument("--weights-dataset", default=WEIGHTS_DATASET,
@@ -1187,6 +1220,8 @@ def main():
     s.set_defaults(fn=cmd_auto_audit)
 
     args = ap.parse_args()
+    if getattr(args, "idle_timeout_min", 30) <= 0:
+        ap.error("--idle-timeout-min debe ser mayor que cero")
     args.fn(args)
 
 
