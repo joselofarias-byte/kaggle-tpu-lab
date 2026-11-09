@@ -3,22 +3,50 @@
 ## Operación única desde Termux
 
 Copiar y ejecutar `termux-deploy.sh` con Bash en el almacenamiento privado de
-Termux, no en `/sdcard`. Instala `gh` y OpenSSL si faltan, abre la autenticación
-web de GitHub si hace falta y solicita las dos credenciales Modal **sin eco**.
-La cuenta GitHub debe poder administrar Secrets de Actions y despachar workflows.
-No necesita Debian, Python, SSH ni el SDK de Modal en Android.
+Termux, no en `/sdcard`. Instala `gh`, OpenSSL y Python si faltan, abre la
+autenticación web de GitHub si hace falta y solicita **sin eco sólo las
+credenciales Modal ausentes**. La cuenta GitHub debe poder listar/crear Secrets,
+despachar Actions y descargar sus artefactos. No necesita Debian, SDK Modal en
+Android, SSH ni root. El script final despacha exclusivamente desde **main**;
+ejecutarlo después de fusionar el PR.
 
-El script configura `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` y
-`CONTROLLER_BUNDLE_PASSWORD` mediante stdin de `gh secret set`. Genera esta última
-con OpenSSL una sola vez y la conserva en
-`~/.config/kaggle-modal-actions/bundle-password` (archivo 0600, directorio 0700).
-Reutiliza ese archivo al repetirlo: respaldarlo de forma privada. No ejecutarlo
-con trazado de shell ni compartir los archivos privados. Si se perdió la contraseña,
-los bundles anteriores no se pueden descifrar con una contraseña nueva.
+Primero consulta los **nombres** de Secrets de repositorio con `gh secret list`.
+No lee sus valores ni actualiza los existentes: `MODAL_TOKEN_ID`,
+`MODAL_TOKEN_SECRET`, `CONTROLLER_BUNDLE_PASSWORD` y `CONTROLLER_TOKEN` existentes
+se conservan. Para esta vía se requieren Secrets de repositorio; no se importan
+ni modifican secretos de organización o de environments. No ejecutar dos
+configuradores concurrentemente: GitHub no ofrece creación condicional de Secrets.
 
-Antes de lanzar despliegue exige escribir `DESPLEGAR` para aceptar posibles cargos
-no-GPU. Nunca solicita inferencia. Revisa el enlace de Actions y su resultado;
-una solicitud de ejecución no prueba que el despliegue haya terminado.
+Si falta el Secret de contraseña, sólo entonces genera una contraseña con OpenSSL
+si no hay una local. La conserva en
+`~/.config/kaggle-modal-actions/bundle-password` (0600, directorio 0700).
+Si el Secret GitHub ya existe y falta ese archivo, **aborta antes de crear secretos**.
+Recuperar la contraseña **original** desde la copia privada del teléfono anterior
+o el gestor de contraseñas, guardarla en esa ruta y aplicar `chmod 600`.
+GitHub no permite recuperar el valor de un Secret. Sin respaldo no es posible
+continuar este flujo sin una recuperación/rotación separada autorizada;
+no borrar el Secret para eludir el control. No compartir secretos por chat.
+
+Luego ejecuta `.github/workflows/modal-workspace.yml`: sólo consulta metadatos de
+Modal con las credenciales **realmente almacenadas en GitHub**, no despliega ni
+crea contenedores. Descarga un artefacto efímero con el workspace visible, presencia
+del Secret `android-modal-control` y una prueba HMAC de correspondencia de contraseña
+sobre un desafío aleatorio, nunca sus valores. La prueba debe coincidir con la
+contraseña local; si no coincide, aborta sin sobrescribir nada. Los artefactos se
+conservan un día; su copia temporal local se elimina al salir. Actions puede consumir
+minutos facturables aunque no inicie recursos de cómputo de Modal.
+
+El script muestra el listado de workspaces **disponibles para ese token** y exige
+seleccionar el destino. Modal 1.4.2 sólo permite consultar el workspace asociado al
+token, no todos los workspaces de una cuenta web: el listado tendrá un destino.
+Si no es el deseado, cancelar; el propietario debe revisar las credenciales
+existentes por separado, no reemplazarlas automáticamente. El despliegue vuelve
+a validar ese nombre antes de modificar Modal, por si las credenciales cambiaron.
+
+Antes de solicitar despliegue exige escribir `DESPLEGAR` para aceptar posibles
+cargos no-GPU. Nunca solicita inferencia. Revisa el enlace de Actions y su resultado;
+una solicitud no prueba que el despliegue haya terminado. La consulta real con
+credenciales y la ejecución física en Termux continúan pendientes hasta ejecutarlo.
 
 ## Persistencia del token
 

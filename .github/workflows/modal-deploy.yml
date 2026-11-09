@@ -3,6 +3,9 @@ name: Deploy Modal controller (manual)
 on:
   workflow_call:
     inputs:
+      expected_workspace:
+        type: string
+        default: ''
       acknowledge_cost:
         type: boolean
         default: false
@@ -11,6 +14,10 @@ on:
         default: true
   workflow_dispatch:
     inputs:
+      expected_workspace:
+        description: 'Workspace validado (aborta si las credenciales apuntan a otro destino)'
+        type: string
+        default: ''
       validate_only:
         description: 'Validar archivos y referencia sin acceder a Modal ni desplegar'
         type: boolean
@@ -61,6 +68,7 @@ jobs:
       - name: Deploy and verify without starting a model
         working-directory: modal-control
         env:
+          EXPECTED_MODAL_WORKSPACE: ${{ inputs.expected_workspace }}
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           CONTROLLER_TOKEN: ${{ secrets.CONTROLLER_TOKEN }}

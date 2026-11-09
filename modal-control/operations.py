@@ -172,6 +172,11 @@ def deploy(args):
         raise OperationError("GitHub Actions requires --encrypted-output; plaintext runner output is disabled.")
     password = bundle_password() if args.encrypted_output else None
     output = args.encrypted_output or args.output
+    expected_workspace = os.environ.get("EXPECTED_MODAL_WORKSPACE")
+    if expected_workspace:
+        from workspace_check import lookup_workspace
+        if lookup_workspace() != expected_workspace:
+            raise OperationError("Workspace differs from the selected destination; no changes were made.")
     require_inactive_session()
     supplied = os.environ.get("CONTROLLER_TOKEN") or None
     existing = any(secret.name == APP_NAME for secret in modal.Secret.objects.list())

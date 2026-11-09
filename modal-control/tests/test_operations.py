@@ -396,3 +396,22 @@ def test_actions_redeploy_encrypts_retrieved_token_without_supplied_token(deploy
     assert [c[0] for c in calls] == ["verify", "subprocess", "verify"]
     assert TOKEN.encode() not in output.read_bytes()
     assert TOKEN not in str(capsys.readouterr())
+
+
+def test_selected_workspace_mismatch_aborts_before_remote_mutations(deployment, monkeypatch, capsys):
+    import workspace_check
+    output, calls = deployment
+    monkeypatch.setenv('EXPECTED_MODAL_WORKSPACE', 'selected-workspace')
+    monkeypatch.setattr(workspace_check, 'lookup_workspace', lambda: 'different-workspace')
+    assert operations.main(['deploy', '--output', str(output)]) == 1
+    assert not calls and not output.exists()
+    assert 'Workspace differs' in capsys.readouterr().err
+
+
+def test_selected_workspace_match_allows_deploy(deployment, monkeypatch):
+    import workspace_check
+    output, calls = deployment
+    monkeypatch.setenv('EXPECTED_MODAL_WORKSPACE', 'selected-workspace')
+    monkeypatch.setattr(workspace_check, 'lookup_workspace', lambda: 'selected-workspace')
+    assert operations.main(['deploy', '--output', str(output)]) == 0
+    assert output.exists()

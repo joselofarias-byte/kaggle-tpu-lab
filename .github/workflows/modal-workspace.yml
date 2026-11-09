@@ -1,0 +1,39 @@
+name: Check Modal workspace (read-only)
+run-name: modal-workspace-${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: 'Random 32-character hexadecimal challenge for this workspace check'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned controller dependencies
+        run: python -m pip install -r modal-control/requirements.txt
+      - name: Inspect the token-associated workspace and secret names only
+        working-directory: modal-control
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          CONTROLLER_BUNDLE_PASSWORD: ${{ secrets.CONTROLLER_BUNDLE_PASSWORD }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: python workspace_check.py --request-id "$REQUEST_ID" --output "$RUNNER_TEMP/workspace.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modal-workspace
+          path: ${{ runner.temp }}/workspace.json
+          if-no-files-found: error
+          retention-days: 1
