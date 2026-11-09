@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "molab/jolufasoft-davidau-mtp",
+  "provider": {
+    "molab": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Molab DavidAU MTP",
+      "options": {
+        "baseURL": "http://127.0.0.1:18993/v1",
+        "apiKey": "{env:MOLAB_API_KEY}"
+      },
+      "models": {
+        "jolufasoft-davidau-mtp": {
+          "name": "DavidAU 27B Q4_K_M MTP",
+          "tool_call": true,
+          "limit": {
+            "context": 32768,
+            "output": 2048
+          }
+        }
+      }
+    }
+  }
+}

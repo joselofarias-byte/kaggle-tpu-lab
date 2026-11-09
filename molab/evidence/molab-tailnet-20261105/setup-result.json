@@ -1,0 +1,51 @@
+{
+  "date": "2026-11-05",
+  "source": "Executed in Molab through Work browser; values transcribed from observed tool outputs.",
+  "authorized_actions": [
+    "install Tailscale 1.104.5 from official source",
+    "start tailscaled userspace",
+    "enroll jolufasoft-molab-llm in user's tailnet",
+    "serve authenticated private API"
+  ],
+  "installation": {
+    "version": "1.104.5",
+    "tailscale_commit": "78838476328d1a97dc05400ad23086a9dbe616da",
+    "archive_sha256": "720cbbccbfc03d8b55df72afc19e5a72e31b0f65934700aa6fa38074d4ad7bf7",
+    "official_checksum_verified_by_installer": true,
+    "daemon_started": true,
+    "userspace": true
+  },
+  "control_connection": {
+    "dns_resolved": true,
+    "curl_exit": 28,
+    "http_code": "000",
+    "elapsed_seconds": 5.001007,
+    "error": "Connection timed out after 5000 milliseconds",
+    "backend": "NeedsLogin",
+    "auth_url_available": false,
+    "enrolled": false,
+    "network_published": false
+  },
+  "restoration": {
+    "gguf_downloaded_bytes": 18498573856,
+    "first_error": "git clone destination existed without .git; preserved directory as sandbox backup",
+    "recovery_patch_commit": "87ac2313b1567571777dd29d444573a43bd544fa",
+    "build_finished": false
+  },
+  "provider_event": {
+    "message": "Your sandbox stopped responding and was reclaimed. Would you like to relaunch it?",
+    "relaunch_clicked": true,
+    "api_from_reclaimed_sandbox_running": false
+  },
+  "limits": "No successful tailnet enrollment, external API access, or post-reclamation inference is claimed. Earlier successful API/OpenCode measurements remain historical evidence.",
+  "post_relaunch": {
+    "curl_exit": 28,
+    "http_code": "000",
+    "elapsed_seconds": 5.001693,
+    "llama_server_present": false,
+    "gguf_present": false,
+    "tailscale_binary_present": false,
+    "compute_visible": "4 CPU · 32 GiB",
+    "provider_banner": "GPU access is temporarily restricted for your account."
+  }
+}

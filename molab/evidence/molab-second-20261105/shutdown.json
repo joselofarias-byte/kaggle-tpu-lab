@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-05",
+  "source": "Work browser observations",
+  "notebook": "nb_X6tbqeajU6M39rYq5N1fwn",
+  "service_running_before_sandbox_shutdown": false,
+  "gpu_memory_used_mib_before_sandbox_shutdown": 0,
+  "shutdown_clicked": true,
+  "running_notebooks_after_shutdown": 0,
+  "shutdown_menu_item_after_shutdown": false,
+  "clean_synced_notebook_added": true
+}

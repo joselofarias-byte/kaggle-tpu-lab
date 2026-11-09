@@ -1,0 +1,107 @@
+{
+  "missing_status": 401,
+  "invalid_status": 401,
+  "models": {
+    "models": [
+      {
+        "name": "jolufasoft-davidau-mtp",
+        "model": "jolufasoft-davidau-mtp",
+        "modified_at": "",
+        "size": "",
+        "digest": "",
+        "type": "model",
+        "description": "",
+        "tags": [
+          ""
+        ],
+        "capabilities": [
+          "completion"
+        ],
+        "parameters": "",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "",
+          "families": [
+            ""
+          ],
+          "parameter_size": "",
+          "quantization_level": ""
+        }
+      }
+    ],
+    "object": "list",
+    "data": [
+      {
+        "id": "jolufasoft-davidau-mtp",
+        "aliases": [
+          "jolufasoft-davidau-mtp"
+        ],
+        "tags": [],
+        "object": "model",
+        "architecture": {
+          "input_modalities": [
+            "text"
+          ],
+          "output_modalities": [
+            "text"
+          ]
+        },
+        "created": 1793845167,
+        "owned_by": "llamacpp",
+        "meta": {
+          "vocab_type": 2,
+          "n_vocab": 248320,
+          "n_ctx": 32768,
+          "n_ctx_train": 262144,
+          "n_embd": 5120,
+          "n_params": 27320697856,
+          "size": 18487578624,
+          "ftype": "Q4_K - Medium"
+        }
+      }
+    ]
+  },
+  "chat": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "API_MTP_OK"
+        }
+      }
+    ],
+    "created": 1793845167,
+    "model": "jolufasoft-davidau-mtp",
+    "system_fingerprint": "b1-cd959ba",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 5,
+      "prompt_tokens": 20,
+      "total_tokens": 25,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "id": "chatcmpl-TO9hRbHhJHU7SOPSwGcBYiGfXGaqfC8t",
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 20,
+      "prompt_ms": 293.535,
+      "prompt_per_token_ms": 14.676750000000002,
+      "prompt_per_second": 68.13497538624014,
+      "predicted_n": 5,
+      "predicted_ms": 69.965,
+      "predicted_per_token_ms": 17.49125,
+      "predicted_per_second": 57.17144286428928,
+      "draft_n": 3,
+      "draft_n_accepted": 3
+    }
+  },
+  "chat_wall_seconds": 0.36720986900036223,
+  "stream_chunks": 6,
+  "stream_text": "API_MTP_OK",
+  "stream_done": true
+}
